@@ -22,7 +22,7 @@ const container = {
 
 const item = {
   hidden: { opacity: 0, x: -8 },
-  show: { opacity: 1, x: 0, transition: { type: "spring", bounce: 0 } },
+  show: { opacity: 1, x: 0, transition: { type: "spring" as const, bounce: 0 } },
 };
 
 export function ActivityFeed() {

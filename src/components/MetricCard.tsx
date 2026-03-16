@@ -12,7 +12,7 @@ interface MetricCardProps {
 
 const item = {
   hidden: { y: 10, opacity: 0 },
-  show: { y: 0, opacity: 1, transition: { type: "spring", bounce: 0 } },
+  show: { y: 0, opacity: 1, transition: { type: "spring" as const, bounce: 0 } },
 };
 
 export function MetricCard({ title, value, change, changeType = "neutral", icon: Icon, index = 0 }: MetricCardProps) {

@@ -25,7 +25,7 @@ const container = {
 
 const row = {
   hidden: { opacity: 0, y: 6 },
-  show: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0 } },
+  show: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0 } },
 };
 
 export function InvoiceTable() {
