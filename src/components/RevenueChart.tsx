@@ -1,4 +1,4 @@
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
 
 const data = [
@@ -15,67 +15,53 @@ const formatCurrency = (value: number) => `₹${(value / 1000).toFixed(0)}K`;
 export function RevenueChart() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3, type: "spring", bounce: 0 }}
-      className="surface-elevated rounded-lg p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 0.2, duration: 0.4 }}
+      className="surface-elevated p-5"
     >
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold tracking-tight">Revenue vs Expenses</h2>
-        <span className="text-xs text-muted-foreground">Last 6 months</span>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-sm font-medium">Revenue vs Expenses</h2>
+        <span className="text-[11px] text-muted-foreground">6 months</span>
       </div>
-      <div className="h-52">
+      <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 0, right: 0, left: -24, bottom: 0 }}>
             <defs>
               <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(155, 60%, 45%)" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="hsl(155, 60%, 45%)" stopOpacity={0} />
+                <stop offset="0%" stopColor="hsl(155, 50%, 38%)" stopOpacity={0.15} />
+                <stop offset="100%" stopColor="hsl(155, 50%, 38%)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(15, 80%, 55%)" stopOpacity={0.2} />
-                <stop offset="100%" stopColor="hsl(15, 80%, 55%)" stopOpacity={0} />
+                <stop offset="0%" stopColor="hsl(0, 72%, 51%)" stopOpacity={0.1} />
+                <stop offset="100%" stopColor="hsl(0, 72%, 51%)" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(230, 15%, 20%)" />
             <XAxis
               dataKey="month"
-              tick={{ fill: "hsl(230, 10%, 55%)", fontSize: 12 }}
-              axisLine={{ stroke: "hsl(230, 15%, 20%)" }}
+              tick={{ fill: "hsl(230, 8%, 50%)", fontSize: 11 }}
+              axisLine={false}
               tickLine={false}
             />
             <YAxis
               tickFormatter={formatCurrency}
-              tick={{ fill: "hsl(230, 10%, 55%)", fontSize: 11 }}
+              tick={{ fill: "hsl(230, 8%, 50%)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "hsl(230, 20%, 14%)",
-                border: "1px solid hsl(230, 15%, 22%)",
-                borderRadius: "6px",
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "8px",
                 fontSize: "12px",
-                color: "hsl(0, 0%, 96%)",
+                color: "hsl(var(--foreground))",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
               }}
               formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, undefined]}
             />
-            <Area
-              type="monotone"
-              dataKey="revenue"
-              stroke="hsl(155, 60%, 45%)"
-              strokeWidth={2}
-              fill="url(#revenueGrad)"
-              name="Revenue"
-            />
-            <Area
-              type="monotone"
-              dataKey="expenses"
-              stroke="hsl(15, 80%, 55%)"
-              strokeWidth={2}
-              fill="url(#expenseGrad)"
-              name="Expenses"
-            />
+            <Area type="monotone" dataKey="revenue" stroke="hsl(155, 50%, 38%)" strokeWidth={1.5} fill="url(#revenueGrad)" name="Revenue" />
+            <Area type="monotone" dataKey="expenses" stroke="hsl(0, 72%, 51%)" strokeWidth={1.5} fill="url(#expenseGrad)" name="Expenses" />
           </AreaChart>
         </ResponsiveContainer>
       </div>

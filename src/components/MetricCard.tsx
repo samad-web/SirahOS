@@ -7,31 +7,26 @@ interface MetricCardProps {
   change?: string;
   changeType?: "positive" | "negative" | "neutral";
   icon: LucideIcon;
-  index?: number;
 }
 
 const item = {
-  hidden: { y: 10, opacity: 0 },
-  show: { y: 0, opacity: 1, transition: { type: "spring" as const, bounce: 0 } },
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.4 } },
 };
 
-export function MetricCard({ title, value, change, changeType = "neutral", icon: Icon, index = 0 }: MetricCardProps) {
+export function MetricCard({ title, value, change, changeType = "neutral", icon: Icon }: MetricCardProps) {
   return (
-    <motion.div variants={item} className="surface-elevated rounded-lg p-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground uppercase tracking-wider">{title}</span>
-        <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
+    <motion.div variants={item} className="surface-elevated p-5">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-muted-foreground">{title}</span>
+        <Icon size={15} strokeWidth={1.5} className="text-muted-foreground/60" />
       </div>
-      <div className="flex items-end justify-between">
-        <span className="text-2xl font-semibold tracking-tight font-mono tabular-nums">{value}</span>
+      <div className="flex items-end gap-2">
+        <span className="text-xl font-semibold tracking-tight font-mono tabular-nums">{value}</span>
         {change && (
           <span
-            className={`text-xs font-mono ${
-              changeType === "positive"
-                ? "text-money-in"
-                : changeType === "negative"
-                ? "text-money-out"
-                : "text-muted-foreground"
+            className={`text-[11px] font-mono mb-0.5 ${
+              changeType === "positive" ? "text-money-in" : changeType === "negative" ? "text-money-out" : "text-muted-foreground"
             }`}
           >
             {change}
