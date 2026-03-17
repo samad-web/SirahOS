@@ -7,9 +7,7 @@ import {
   BookOpen,
   TrendingUp,
   CreditCard,
-  Package,
   Settings,
-  Building2,
 } from "lucide-react";
 
 const navItems = [
@@ -19,8 +17,6 @@ const navItems = [
   { icon: Users, label: "Customers", path: "/customers" },
   { icon: BookOpen, label: "Ledger", path: "/ledger" },
   { icon: TrendingUp, label: "Reports", path: "/reports" },
-  { icon: Package, label: "Inventory", path: "/inventory" },
-  { icon: Building2, label: "Branches", path: "/branches" },
 ];
 
 export function AppSidebar() {
