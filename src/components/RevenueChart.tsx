@@ -1,4 +1,4 @@
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { motion } from "framer-motion";
 
 const data = [
@@ -15,37 +15,50 @@ const formatCurrency = (value: number) => `₹${(value / 1000).toFixed(0)}K`;
 export function RevenueChart() {
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: 0.2, duration: 0.4 }}
-      className="surface-elevated p-5"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2, duration: 0.5 }}
+      className="surface-elevated p-5 h-full"
     >
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-sm font-medium">Revenue vs Expenses</h2>
-        <span className="text-[11px] text-muted-foreground">6 months</span>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-sm font-semibold">Revenue vs Expenses</h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Last 6 months overview</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-primary" />
+            <span className="text-[11px] text-muted-foreground">Revenue</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-money-out" />
+            <span className="text-[11px] text-muted-foreground">Expenses</span>
+          </div>
+        </div>
       </div>
-      <div className="h-48">
+      <div className="h-52">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 0, right: 0, left: -24, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(155, 50%, 38%)" stopOpacity={0.15} />
-                <stop offset="100%" stopColor="hsl(155, 50%, 38%)" stopOpacity={0} />
+                <stop offset="0%" stopColor="hsl(250, 75%, 58%)" stopOpacity={0.2} />
+                <stop offset="100%" stopColor="hsl(250, 75%, 58%)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(0, 72%, 51%)" stopOpacity={0.1} />
-                <stop offset="100%" stopColor="hsl(0, 72%, 51%)" stopOpacity={0} />
+                <stop offset="0%" stopColor="hsl(0, 72%, 55%)" stopOpacity={0.08} />
+                <stop offset="100%" stopColor="hsl(0, 72%, 55%)" stopOpacity={0} />
               </linearGradient>
             </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 15%, 91%)" vertical={false} />
             <XAxis
               dataKey="month"
-              tick={{ fill: "hsl(230, 8%, 50%)", fontSize: 11 }}
+              tick={{ fill: "hsl(220, 10%, 46%)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
             />
             <YAxis
               tickFormatter={formatCurrency}
-              tick={{ fill: "hsl(230, 8%, 50%)", fontSize: 11 }}
+              tick={{ fill: "hsl(220, 10%, 46%)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
             />
@@ -53,15 +66,16 @@ export function RevenueChart() {
               contentStyle={{
                 backgroundColor: "hsl(var(--card))",
                 border: "1px solid hsl(var(--border))",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 fontSize: "12px",
                 color: "hsl(var(--foreground))",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+                padding: "8px 12px",
               }}
               formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, undefined]}
             />
-            <Area type="monotone" dataKey="revenue" stroke="hsl(155, 50%, 38%)" strokeWidth={1.5} fill="url(#revenueGrad)" name="Revenue" />
-            <Area type="monotone" dataKey="expenses" stroke="hsl(0, 72%, 51%)" strokeWidth={1.5} fill="url(#expenseGrad)" name="Expenses" />
+            <Area type="monotone" dataKey="revenue" stroke="hsl(250, 75%, 58%)" strokeWidth={2} fill="url(#revenueGrad)" name="Revenue" />
+            <Area type="monotone" dataKey="expenses" stroke="hsl(0, 72%, 55%)" strokeWidth={1.5} fill="url(#expenseGrad)" name="Expenses" />
           </AreaChart>
         </ResponsiveContainer>
       </div>

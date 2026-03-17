@@ -9,6 +9,8 @@ import {
   CreditCard,
   FolderKanban,
   Settings,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 const navItems = [
@@ -28,39 +30,50 @@ export function AppSidebar() {
 
   return (
     <aside
-      className={`flex flex-col bg-sidebar border-r border-sidebar-border h-screen sticky top-0 transition-all duration-200 ${
-        collapsed ? "w-14" : "w-52"
+      className={`flex flex-col bg-sidebar border-r border-sidebar-border h-screen sticky top-0 transition-all duration-300 ease-in-out ${
+        collapsed ? "w-[60px]" : "w-56"
       }`}
     >
       {/* Logo */}
-      <div className="flex items-center h-14 px-3 border-b border-sidebar-border">
-        <button onClick={() => setCollapsed(!collapsed)} className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-            <span className="text-primary-foreground font-mono font-semibold text-xs">L</span>
+      <div className="flex items-center justify-between h-14 px-3 border-b border-sidebar-border">
+        <button onClick={() => navigate("/")} className="flex items-center gap-2.5 overflow-hidden">
+          <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center flex-shrink-0 shadow-sm">
+            <span className="text-white font-semibold text-sm">L</span>
           </div>
           {!collapsed && (
-            <span className="text-foreground font-semibold text-sm tracking-tight">Ledge</span>
+            <span className="text-foreground font-semibold text-[15px] tracking-tight">Ledge</span>
           )}
+        </button>
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="p-1 rounded-lg hover:bg-sidebar-accent transition-colors text-muted-foreground"
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 py-3 px-2 space-y-0.5">
+        {!collapsed && (
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 px-3 mb-2 block">
+            Menu
+          </span>
+        )}
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
-              className={`w-full flex items-center gap-2.5 px-2.5 h-9 rounded-lg text-[13px] transition-colors ${
+              className={`w-full flex items-center gap-3 px-3 h-9 rounded-xl text-[13px] transition-all duration-200 ${
                 isActive
-                  ? "bg-primary/10 text-foreground font-medium"
+                  ? "bg-accent text-accent-foreground font-medium shadow-sm"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
               }`}
             >
               <item.icon
                 size={17}
-                strokeWidth={1.5}
+                strokeWidth={isActive ? 2 : 1.5}
                 className={isActive ? "text-primary" : ""}
               />
               {!collapsed && <span>{item.label}</span>}
@@ -73,7 +86,11 @@ export function AppSidebar() {
       <div className="p-2 border-t border-sidebar-border">
         <button
           onClick={() => navigate("/settings")}
-          className="w-full flex items-center gap-2.5 px-2.5 h-9 rounded-lg text-[13px] text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground transition-colors"
+          className={`w-full flex items-center gap-3 px-3 h-9 rounded-xl text-[13px] transition-all duration-200 ${
+            location.pathname === "/settings"
+              ? "bg-accent text-accent-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+          }`}
         >
           <Settings size={17} strokeWidth={1.5} />
           {!collapsed && <span>Settings</span>}

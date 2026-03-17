@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, ArrowUpRight, ArrowDownRight } from "lucide-react";
 
 interface MetricCardProps {
   title: string;
@@ -10,27 +10,36 @@ interface MetricCardProps {
 }
 
 const item = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.4 } },
+  hidden: { opacity: 0, y: 12 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
 };
 
 export function MetricCard({ title, value, change, changeType = "neutral", icon: Icon }: MetricCardProps) {
   return (
-    <motion.div variants={item} className="surface-elevated p-5">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-muted-foreground">{title}</span>
-        <Icon size={15} strokeWidth={1.5} className="text-muted-foreground/60" />
+    <motion.div variants={item} className="surface-elevated p-5 hover:shadow-md transition-shadow duration-300 group">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{title}</span>
+        <div className="w-8 h-8 rounded-xl bg-accent flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+          <Icon size={15} strokeWidth={1.5} className="text-primary" />
+        </div>
       </div>
-      <div className="flex items-end gap-2">
-        <span className="text-xl font-semibold tracking-tight font-mono tabular-nums">{value}</span>
+      <div className="space-y-1">
+        <span className="text-2xl font-semibold tracking-tight font-mono tabular-nums">{value}</span>
         {change && (
-          <span
-            className={`text-[11px] font-mono mb-0.5 ${
-              changeType === "positive" ? "text-money-in" : changeType === "negative" ? "text-money-out" : "text-muted-foreground"
-            }`}
-          >
-            {change}
-          </span>
+          <div className="flex items-center gap-1">
+            {changeType === "positive" ? (
+              <ArrowUpRight size={12} className="text-money-in" />
+            ) : changeType === "negative" ? (
+              <ArrowDownRight size={12} className="text-money-out" />
+            ) : null}
+            <span
+              className={`text-[11px] font-medium ${
+                changeType === "positive" ? "text-money-in" : changeType === "negative" ? "text-money-out" : "text-muted-foreground"
+              }`}
+            >
+              {change}
+            </span>
+          </div>
         )}
       </div>
     </motion.div>
