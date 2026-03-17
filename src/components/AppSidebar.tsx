@@ -7,9 +7,7 @@ import {
   BookOpen,
   TrendingUp,
   CreditCard,
-  Package,
   Settings,
-  Building2,
 } from "lucide-react";
 
 const navItems = [
