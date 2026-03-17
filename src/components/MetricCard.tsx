@@ -11,7 +11,7 @@ interface MetricCardProps {
 
 const item = {
   hidden: { opacity: 0, y: 12 },
-  show: { opacity: 1, y: 0, transition: { type: "spring", bounce: 0, duration: 0.5 } },
+  show: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.5 } },
 };
 
 export function MetricCard({ title, value, change, changeType = "neutral", icon: Icon }: MetricCardProps) {
