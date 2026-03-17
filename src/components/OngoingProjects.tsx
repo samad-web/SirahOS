@@ -123,7 +123,7 @@ export function OngoingProjects() {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-foreground">{project.name}</h3>
-              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full capitalize ${statusColors[project.status] || statusColors.active}`}>
+              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full capitalize ${statusColors[project.status]}`}>
                 active
               </span>
             </div>

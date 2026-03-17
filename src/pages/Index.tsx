@@ -61,6 +61,9 @@ const Index = () => {
             </div>
           </div>
 
+          {/* Ongoing Projects */}
+          <OngoingProjects />
+
           {/* Invoices */}
           <InvoiceTable />
         </div>
