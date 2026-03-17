@@ -7,11 +7,13 @@ import {
   BookOpen,
   TrendingUp,
   CreditCard,
+  FolderKanban,
   Settings,
 } from "lucide-react";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: FolderKanban, label: "Projects", path: "/projects" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: CreditCard, label: "POS", path: "/pos" },
   { icon: Users, label: "Customers", path: "/customers" },

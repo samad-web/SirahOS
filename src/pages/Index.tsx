@@ -4,7 +4,6 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { MetricCard } from "@/components/MetricCard";
 import { InvoiceTable } from "@/components/InvoiceTable";
 import { RevenueChart } from "@/components/RevenueChart";
-import { OngoingProjects } from "@/components/OngoingProjects";
 import { CommandBar } from "@/components/CommandBar";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -61,8 +60,7 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Ongoing Projects */}
-          <OngoingProjects />
+          {/* Invoices */}
 
           {/* Invoices */}
           <InvoiceTable />
