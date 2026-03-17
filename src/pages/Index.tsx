@@ -60,8 +60,7 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Ongoing Projects */}
-          <OngoingProjects />
+          {/* Invoices */}
 
           {/* Invoices */}
           <InvoiceTable />
