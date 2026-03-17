@@ -26,6 +26,7 @@ const sampleProjects: Project[] = [
     githubUrl: "https://github.com/org/ecommerce-platform",
     githubVisibility: "private",
     githubAccountOwnedBy: "Arjun Kumar",
+    status: "active",
   },
   {
     id: "2",
@@ -37,6 +38,7 @@ const sampleProjects: Project[] = [
     githubUrl: "https://github.com/org/crm-dashboard",
     githubVisibility: "public",
     githubAccountOwnedBy: "Sneha Patel",
+    status: "review",
   },
   {
     id: "3",
@@ -48,6 +50,7 @@ const sampleProjects: Project[] = [
     githubUrl: "https://github.com/org/invoice-auto",
     githubVisibility: "private",
     githubAccountOwnedBy: "Vikram Singh",
+    status: "active",
   },
 ];
 
