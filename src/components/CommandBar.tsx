@@ -23,7 +23,7 @@ export function CommandBar() {
         </div>
         <input
           type="text"
-          placeholder='Try "Invoice ₹5000 to Sharma"'
+          placeholder='Search or type a command…'
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onFocus={() => setFocused(true)}

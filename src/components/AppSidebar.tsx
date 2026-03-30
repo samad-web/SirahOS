@@ -1,101 +1,247 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard,
-  FileText,
-  Users,
-  BookOpen,
-  TrendingUp,
-  CreditCard,
-  FolderKanban,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
+  LayoutDashboard, FileText, Users, BookOpen,
+  FolderKanban, Settings, LogOut, CalendarDays, Receipt, StickyNote, UserPlus, UsersRound,
+  Menu, X,
 } from "lucide-react";
+import { useAuth, ROUTE_ACCESS, ROLE_LABELS } from "@/contexts/AuthContext";
 
-const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: FolderKanban, label: "Projects", path: "/projects" },
-  { icon: FileText, label: "Invoices", path: "/invoices" },
-  { icon: CreditCard, label: "POS", path: "/pos" },
-  { icon: Users, label: "Customers", path: "/customers" },
-  { icon: BookOpen, label: "Ledger", path: "/ledger" },
-  { icon: TrendingUp, label: "Reports", path: "/reports" },
+interface NavSection {
+  title: string;
+  items: { icon: React.ElementType; label: string; path: string }[];
+}
+
+const allSections: NavSection[] = [
+  {
+    title: "Overview",
+    items: [
+      { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+    ],
+  },
+  {
+    title: "Team",
+    items: [
+      { icon: UsersRound, label: "Employees", path: "/employees" },
+      { icon: FolderKanban, label: "Projects", path: "/projects" },
+      { icon: CalendarDays, label: "Attendance", path: "/attendance" },
+    ],
+  },
+  {
+    title: "Billing",
+    items: [
+      { icon: FileText, label: "Invoices", path: "/invoices" },
+      { icon: Users, label: "Customers", path: "/customers" },
+      { icon: Receipt, label: "Expenses", path: "/expenses" },
+      { icon: BookOpen, label: "Ledger", path: "/ledger" },
+    ],
+  },
+  {
+    title: "Tools",
+    items: [
+      { icon: UserPlus, label: "Leads", path: "/leads" },
+      { icon: StickyNote, label: "Notes", path: "/notes" },
+    ],
+  },
 ];
 
 export function AppSidebar() {
-  const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, logout } = useAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  return (
-    <aside
-      className={`flex flex-col bg-sidebar border-r border-sidebar-border h-screen sticky top-0 transition-all duration-300 ease-in-out ${
-        collapsed ? "w-[60px]" : "w-56"
-      }`}
-    >
+  const role = user?.role ?? "DEVELOPER";
+  const allowed = ROUTE_ACCESS;
+  const canSettings = (allowed["/settings"] ?? []).includes(role);
+  const { label: roleLbl, cls: roleCls } = ROLE_LABELS[role];
+
+  // Close mobile sidebar on route change
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const handleLogout = () => { logout(); navigate("/login"); };
+
+  const navTo = (path: string) => {
+    navigate(path);
+    setMobileOpen(false);
+  };
+
+  // Filter sections by role
+  const sections = allSections
+    .map(s => ({ ...s, items: s.items.filter(item => (allowed[item.path] ?? []).includes(role)) }))
+    .filter(s => s.items.length > 0);
+
+  const sidebarContent = (expanded: boolean) => (
+    <>
       {/* Logo */}
-      <div className="flex items-center justify-between h-14 px-3 border-b border-sidebar-border">
-        <button onClick={() => navigate("/")} className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-8 h-8 rounded-xl gradient-primary flex items-center justify-center flex-shrink-0 shadow-sm">
-            <span className="text-white font-semibold text-sm">L</span>
-          </div>
-          {!collapsed && (
-            <span className="text-foreground font-semibold text-[15px] tracking-tight">Ledge</span>
-          )}
-        </button>
+      <div className={`flex items-center ${expanded ? "gap-3 px-4" : "justify-center"} h-14 border-b border-sidebar-border flex-shrink-0`}>
         <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-1 rounded-lg hover:bg-sidebar-accent transition-colors text-muted-foreground"
+          onClick={() => navTo(role === "ADMIN" ? "/" : "/projects")}
+          className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden"
         >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          <img src="/logo.png" alt="Sirahos" className="w-full h-full object-contain" />
         </button>
+        {expanded && <span className="text-sm font-bold truncate">Sirahos</span>}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-3 px-2 space-y-0.5">
-        {!collapsed && (
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 px-3 mb-2 block">
-            Menu
-          </span>
-        )}
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
-          return (
-            <button
-              key={item.path}
-              onClick={() => navigate(item.path)}
-              className={`w-full flex items-center gap-3 px-3 h-9 rounded-xl text-[13px] transition-all duration-200 ${
-                isActive
-                  ? "bg-accent text-accent-foreground font-medium shadow-sm"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
-              }`}
-            >
-              <item.icon
-                size={17}
-                strokeWidth={isActive ? 2 : 1.5}
-                className={isActive ? "text-primary" : ""}
-              />
-              {!collapsed && <span>{item.label}</span>}
-            </button>
-          );
-        })}
+      <nav className={`flex-1 py-3 flex flex-col ${expanded ? "px-3" : "items-center"} gap-0.5 overflow-y-auto`}>
+        {sections.map((section, si) => (
+          <div key={section.title}>
+            {si > 0 && <div className={`${expanded ? "mx-1" : "mx-2"} my-2 border-t border-sidebar-border`} />}
+            {expanded && (
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-1 block">
+                {section.title}
+              </span>
+            )}
+            {section.items.map(item => {
+              const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path + "/"));
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navTo(item.path)}
+                  title={!expanded ? item.label : undefined}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`${expanded ? "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm" : "w-10 h-10 flex items-center justify-center rounded-xl"} relative transition-all duration-200 ${
+                    isActive
+                      ? "bg-accent text-primary font-medium"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  }`}
+                >
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-primary" />
+                  )}
+                  <item.icon size={expanded ? 16 : 18} strokeWidth={isActive ? 2 : 1.5} />
+                  {expanded && <span className="truncate">{item.label}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
-      {/* Settings */}
-      <div className="p-2 border-t border-sidebar-border">
+      {/* Bottom: settings + user + logout */}
+      <div className={`border-t border-sidebar-border pt-3 pb-3 flex flex-col ${expanded ? "px-3" : "items-center"} gap-1`}>
+        {canSettings && (
+          <button
+            onClick={() => navTo("/settings")}
+            title={!expanded ? "Settings" : undefined}
+            aria-label="Settings"
+            className={`${expanded ? "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm" : "w-10 h-10 flex items-center justify-center rounded-xl"} relative transition-all duration-200 ${
+              location.pathname === "/settings"
+                ? "bg-accent text-primary font-medium"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+            }`}
+          >
+            {location.pathname === "/settings" && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-primary" />
+            )}
+            <Settings size={expanded ? 16 : 18} strokeWidth={1.5} />
+            {expanded && <span>Settings</span>}
+          </button>
+        )}
+
+        {/* User avatar — links to profile */}
         <button
-          onClick={() => navigate("/settings")}
-          className={`w-full flex items-center gap-3 px-3 h-9 rounded-xl text-[13px] transition-all duration-200 ${
-            location.pathname === "/settings"
-              ? "bg-accent text-accent-foreground font-medium"
-              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+          onClick={() => navTo("/profile")}
+          title={!expanded ? "Profile" : undefined}
+          className={`relative group ${expanded ? "w-full flex items-center gap-2.5 px-2 py-2 rounded-xl" : "w-10 h-10 flex items-center justify-center rounded-xl"} transition-all duration-200 ${
+            location.pathname === "/profile"
+              ? "bg-accent text-primary"
+              : "hover:bg-sidebar-accent hover:text-foreground"
           }`}
         >
-          <Settings size={17} strokeWidth={1.5} />
-          {!collapsed && <span>Settings</span>}
+          {location.pathname === "/profile" && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-primary" />
+          )}
+          <div className="w-7 h-7 rounded-full gradient-primary flex items-center justify-center shadow-sm flex-shrink-0">
+            <span className="text-[9px] font-bold text-white">{user?.initials}</span>
+          </div>
+          {expanded && (
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-xs font-semibold truncate">{user?.name}</p>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${roleCls}`}>{roleLbl}</span>
+            </div>
+          )}
+          {/* Tooltip for collapsed sidebar */}
+          {!expanded && (
+            <div className="absolute left-12 bottom-0 hidden group-hover:flex flex-col bg-card border border-border rounded-xl shadow-lg p-3 min-w-[160px] z-50 pointer-events-none">
+              <p className="text-xs font-semibold">{user?.name}</p>
+              <p className="text-[11px] text-muted-foreground mb-1.5">{user?.email}</p>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full w-fit ${roleCls}`}>{roleLbl}</span>
+            </div>
+          )}
+        </button>
+
+        {/* Logout */}
+        <button
+          onClick={handleLogout}
+          title={!expanded ? "Sign out" : undefined}
+          aria-label="Sign out"
+          className={`${expanded ? "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm" : "w-10 h-10 flex items-center justify-center rounded-xl"} text-sidebar-foreground hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-all duration-200`}
+        >
+          <LogOut size={expanded ? 16 : 16} strokeWidth={1.5} />
+          {expanded && <span>Sign Out</span>}
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        aria-label="Open navigation menu"
+        className="fixed top-3 left-3 z-40 w-10 h-10 flex items-center justify-center rounded-xl bg-background border border-border shadow-sm lg:hidden"
+      >
+        <Menu size={18} />
+      </button>
+
+      {/* Mobile overlay sidebar */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden"
+              onClick={() => setMobileOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="fixed top-0 left-0 h-screen w-[260px] bg-sidebar border-r border-sidebar-border z-50 flex flex-col lg:hidden"
+            >
+              <button
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close navigation menu"
+                className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-muted transition-colors"
+              >
+                <X size={16} />
+              </button>
+              {sidebarContent(true)}
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border h-screen sticky top-0 w-[64px] flex-shrink-0">
+        {sidebarContent(false)}
+      </aside>
+    </>
   );
 }

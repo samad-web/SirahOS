@@ -1,29 +1,46 @@
 import { AppSidebar } from "@/components/AppSidebar";
-import { OngoingProjects } from "@/components/OngoingProjects";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Bell } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
+import { useAuth } from "@/contexts/AuthContext";
+import { AdminProjectsView }     from "@/components/projects/AdminProjectsView";
+import { PMProjectsView }        from "@/components/projects/PMProjectsView";
+import { LeadProjectsView }      from "@/components/projects/LeadProjectsView";
+import { DeveloperProjectsView } from "@/components/projects/DeveloperProjectsView";
+import { TesterProjectsView }    from "@/components/projects/TesterProjectsView";
+
+const roleTitle: Record<string, string> = {
+  ADMIN:           "All Projects",
+  PROJECT_MANAGER: "Project Management",
+  LEAD:            "My Project",
+  DEVELOPER:       "My Tasks",
+  TESTER:          "Testing & QA",
+};
 
 const Projects = () => {
+  const { user } = useAuth();
+  const role = user?.role ?? "DEVELOPER";
+
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-
       <main className="flex-1 min-w-0 pb-20">
-        <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-6 border-b border-border bg-background/80 backdrop-blur-sm">
-          <h1 className="text-sm font-medium">Ongoing Projects</h1>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-              <Bell size={16} strokeWidth={1.5} className="text-muted-foreground" />
-            </button>
-            <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center">
-              <span className="text-[11px] font-medium text-primary">AK</span>
-            </div>
+        <PageHeader placeholder={`Search ${roleTitle[role].toLowerCase()}…`} />
+        <div className="p-6 max-w-7xl">
+          <div className="mb-5">
+            <h1 className="text-lg font-semibold">{roleTitle[role]}</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {role === "ADMIN"           && "Overview of all projects, team assignments and health."}
+              {role === "PROJECT_MANAGER" && "Manage your projects, assign leads and track progress."}
+              {role === "LEAD"            && "Your project task board, team, and bug reports."}
+              {role === "DEVELOPER"       && "Tasks assigned to you across all projects."}
+              {role === "TESTER"          && "Your test tasks and bug reporting dashboard."}
+            </p>
           </div>
-        </header>
 
-        <div className="p-6 max-w-6xl">
-          <OngoingProjects />
+          {role === "ADMIN"           && <AdminProjectsView />}
+          {role === "PROJECT_MANAGER" && <PMProjectsView />}
+          {role === "LEAD"            && <LeadProjectsView />}
+          {role === "DEVELOPER"       && <DeveloperProjectsView />}
+          {role === "TESTER"          && <TesterProjectsView />}
         </div>
       </main>
     </div>
