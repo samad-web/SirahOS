@@ -20,11 +20,11 @@ const supabaseHeaders: Record<string, string> = {
 
 // ─── Helper: query Supabase REST API ─────────────────────────────────────────
 
-async function supabaseQuery(table: string, params: URLSearchParams): Promise<{ data: any[]; count: number }> {
+async function supabaseQuery(table: string, params: URLSearchParams): Promise<{ data: Record<string, unknown>[]; count: number }> {
   const url = `${SUPABASE_URL}/rest/v1/${table}?${params.toString()}`;
   const res = await fetch(url, { method: "GET", headers: supabaseHeaders });
   if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
-  const data = (await res.json()) as any[];
+  const data = (await res.json()) as Record<string, unknown>[];
   const range = res.headers.get("content-range");
   const count = range ? parseInt(range.split("/")[1]) || 0 : data.length;
   return { data, count };
@@ -61,8 +61,7 @@ router.get("/", async (req: Request, res: Response) => {
     });
 
     res.json(data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch {
     res.status(502).json({ error: "Failed to fetch leads from ads database" });
   }
 });
@@ -96,8 +95,7 @@ router.get("/stats", async (_req: Request, res: Response) => {
     });
 
     res.json(data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch {
     res.status(502).json({ error: "Failed to fetch stats" });
   }
 });
@@ -113,15 +111,14 @@ router.get("/filters", async (_req: Request, res: Response) => {
 
       const { data } = await supabaseQuery("leads", params);
       return {
-        businessTypes: [...new Set(data.map((d: any) => d.business_type).filter(Boolean))].sort(),
-        attendanceStatuses: [...new Set(data.map((d: any) => d.attendance_status).filter(Boolean))].sort(),
-        lpNames: [...new Set(data.map((d: any) => d.lp_name).filter(Boolean))].sort(),
+        businessTypes: [...new Set(data.map((d) => d.business_type).filter(Boolean))].sort(),
+        attendanceStatuses: [...new Set(data.map((d) => d.attendance_status).filter(Boolean))].sort(),
+        lpNames: [...new Set(data.map((d) => d.lp_name).filter(Boolean))].sort(),
       };
     });
 
     res.json(data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch {
     res.status(502).json({ error: "Failed to fetch filters" });
   }
 });
@@ -139,14 +136,13 @@ router.get("/:id", async (req: Request, res: Response) => {
       const url = `${SUPABASE_URL}/rest/v1/leads?${params.toString()}`;
       const r = await fetch(url, { method: "GET", headers: { ...supabaseHeaders, Prefer: "" } });
       if (!r.ok) throw new Error(`Supabase error: ${r.status}`);
-      const rows = (await r.json()) as any[];
+      const rows = (await r.json()) as Record<string, unknown>[];
       return rows[0] ?? null;
     });
 
     if (!data) { res.status(404).json({ error: "Lead not found" }); return; }
     res.json(data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch {
     res.status(502).json({ error: "Failed to fetch lead" });
   }
 });

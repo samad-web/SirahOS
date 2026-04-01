@@ -38,8 +38,9 @@ export function SuperAdminDashboard() {
       setSheetOpen(false);
       toast.success("Company created successfully");
     },
-    onError: (err: any) => {
-      toast.error(err?.response?.data?.error || "Failed to create company");
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Failed to create company";
+      toast.error(msg);
     },
   });
 

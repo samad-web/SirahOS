@@ -38,8 +38,9 @@ export default function CompanyDetail() {
       queryClient.invalidateQueries({ queryKey: ["companies"] });
       toast.success("Company updated");
     },
-    onError: (err: any) => {
-      toast.error(err?.response?.data?.error || "Failed to update");
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Failed to update";
+      toast.error(msg);
     },
   });
 
@@ -49,7 +50,7 @@ export default function CompanyDetail() {
   };
 
   const toggleFeature = (key: keyof Company, value: boolean) => {
-    updateMutation.mutate({ [key]: value } as any);
+    updateMutation.mutate({ [key]: value } as Partial<Company>);
   };
 
   const toggleSuperAdminMutation = useMutation({
