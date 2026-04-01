@@ -22,6 +22,8 @@ import Leads from "./pages/Leads";
 import LeadDetail from "./pages/LeadDetail";
 import Employees from "./pages/Employees";
 import Profile from "./pages/Profile";
+import CompanyDetail from "./pages/CompanyDetail";
+import Forbidden from "./pages/Forbidden";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -50,49 +52,67 @@ const App = () => (
                 {/* Public */}
                 <Route path="/login" element={<Login />} />
 
-                {/* Admin only */}
+                {/* 403 Forbidden */}
+                <Route path="/403" element={<Forbidden />} />
+
+                {/* Dashboard — SUPER_ADMIN sees company management, ADMIN sees business metrics */}
                 <Route path="/" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN"]}>
                     <Index />
                   </ProtectedRoute>
                 } />
+
+                {/* Company detail — SUPER_ADMIN only */}
+                <Route path="/companies/:id" element={
+                  <ProtectedRoute allowedRoles={["SUPER_ADMIN"]}>
+                    <CompanyDetail />
+                  </ProtectedRoute>
+                } />
+
+                {/* Billing routes */}
                 <Route path="/invoices" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="billing">
                     <Invoices />
                   </ProtectedRoute>
                 } />
                 <Route path="/customers" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="billing">
                     <Customers />
                   </ProtectedRoute>
                 } />
                 <Route path="/ledger" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="billing">
                     <Ledger />
                   </ProtectedRoute>
                 } />
+                <Route path="/expenses" element={
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="billing">
+                    <Expenses />
+                  </ProtectedRoute>
+                } />
+
+                {/* Employee management */}
                 <Route path="/employees" element={
                   <ProtectedRoute allowedRoles={["ADMIN"]}>
                     <Employees />
                   </ProtectedRoute>
                 } />
-                <Route path="/expenses" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
-                    <Expenses />
-                  </ProtectedRoute>
-                } />
+
+                {/* Notes */}
                 <Route path="/notes" element={
                   <ProtectedRoute allowedRoles={["ADMIN"]}>
                     <Notes />
                   </ProtectedRoute>
                 } />
+
+                {/* Leads routes */}
                 <Route path="/leads" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="leads">
                     <Leads />
                   </ProtectedRoute>
                 } />
                 <Route path="/leads/:id" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="leads">
                     <LeadDetail />
                   </ProtectedRoute>
                 } />
@@ -110,13 +130,17 @@ const App = () => (
                     <Profile />
                   </ProtectedRoute>
                 } />
+
+                {/* Projects routes */}
                 <Route path="/projects" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute feature="projects">
                     <Projects />
                   </ProtectedRoute>
                 } />
+
+                {/* Attendance routes */}
                 <Route path="/attendance" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute feature="attendance">
                     <Attendance />
                   </ProtectedRoute>
                 } />

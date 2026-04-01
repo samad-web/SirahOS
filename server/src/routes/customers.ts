@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { cache, TTL } from "../lib/cache";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -38,12 +39,15 @@ const updateCustomerSchema = z.object({
 });
 
 // All customer routes are admin-only
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/customers
-router.get("/", async (_req: Request, res: Response) => {
-  const customers = await cache.getOrSet("customers:list", TTL.SHORT, () =>
+router.get("/", async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const cacheKey = companyId ? `customers:list:${companyId}` : "customers:list";
+  const customers = await cache.getOrSet(cacheKey, TTL.SHORT, () =>
     prisma.customer.findMany({
+      where: companyId ? { companyId } : {},
       include: {
         _count: { select: { invoices: true } },
         invoices: { select: { items: true, payments: true, status: true } },
@@ -78,6 +82,7 @@ router.post(
         ? Math.ceil(totalAmount / monthlyEmi)
         : null;
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const customer = await prisma.customer.create({
       data: {
         ...rest,
@@ -86,6 +91,7 @@ router.post(
         totalAmount: totalAmount ?? null,
         monthlyEmi: monthlyEmi ?? null,
         totalMonths,
+        companyId: companyId ?? undefined,
       },
     });
 

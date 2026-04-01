@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly, adminOrPM, adminOrPMOrLead } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -36,19 +37,20 @@ const updateStatusSchema = z.object({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Filter projects the requesting user is allowed to see */
-async function getVisibleProjects(userId: string, role: Role) {
-  if (role === Role.ADMIN) {
-    return prisma.project.findMany({ include: projectInclude, orderBy: { createdAt: "desc" } });
+async function getVisibleProjects(userId: string, role: Role, companyId?: string) {
+  const companyFilter = companyId ? { companyId } : {};
+  if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
+    return prisma.project.findMany({ where: companyFilter, include: projectInclude, orderBy: { createdAt: "desc" } });
   }
   if (role === Role.PROJECT_MANAGER) {
-    return prisma.project.findMany({ where: { pmId: userId }, include: projectInclude, orderBy: { createdAt: "desc" } });
+    return prisma.project.findMany({ where: { pmId: userId, ...companyFilter }, include: projectInclude, orderBy: { createdAt: "desc" } });
   }
   if (role === Role.LEAD) {
-    return prisma.project.findMany({ where: { leadId: userId }, include: projectInclude, orderBy: { createdAt: "desc" } });
+    return prisma.project.findMany({ where: { leadId: userId, ...companyFilter }, include: projectInclude, orderBy: { createdAt: "desc" } });
   }
   // Developer / Tester — only projects they are members of
   return prisma.project.findMany({
-    where: { members: { some: { userId } } },
+    where: { members: { some: { userId } }, ...companyFilter },
     include: projectInclude,
     orderBy: { createdAt: "desc" },
   });
@@ -57,8 +59,9 @@ async function getVisibleProjects(userId: string, role: Role) {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 // GET /api/projects
-router.get("/", requireAuth, async (req: Request, res: Response) => {
-  const projects = await getVisibleProjects(req.user!.sub, req.user!.role);
+router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const projects = await getVisibleProjects(req.user!.sub, req.user!.role, companyId);
   res.json(projects);
 });
 
@@ -66,6 +69,8 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
 router.post(
   "/",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOnly,
   audit({ action: "CREATE_PROJECT", resourceType: "Project" }),
   async (req: Request, res: Response) => {
@@ -75,10 +80,12 @@ router.post(
       return;
     }
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const project = await prisma.project.create({
       data: {
         ...parsed.data,
         deadline: parsed.data.deadline ? new Date(parsed.data.deadline) : undefined,
+        companyId: companyId ?? undefined,
       },
       include: projectInclude,
     });
@@ -88,7 +95,7 @@ router.post(
 );
 
 // GET /api/projects/:id
-router.get("/:id", requireAuth, async (req: Request, res: Response) => {
+router.get("/:id", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
   const project = await prisma.project.findUnique({
     where: { id: req.params.id as string },
     include: {
@@ -110,6 +117,8 @@ router.get("/:id", requireAuth, async (req: Request, res: Response) => {
 router.patch(
   "/:id/assign-pm",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOnly,
   audit({ action: "ASSIGN_PM", resourceType: "Project" }),
   async (req: Request, res: Response) => {
@@ -132,6 +141,8 @@ router.patch(
 router.patch(
   "/:id/assign-lead",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPM,
   audit({ action: "ASSIGN_LEAD", resourceType: "Project" }),
   async (req: Request, res: Response) => {
@@ -154,6 +165,8 @@ router.patch(
 router.post(
   "/:id/members",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPMOrLead,
   audit({ action: "ADD_MEMBER", resourceType: "Project" }),
   async (req: Request, res: Response) => {
@@ -177,6 +190,8 @@ router.post(
 router.delete(
   "/:id/members/:userId",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPMOrLead,
   audit({ action: "REMOVE_MEMBER", resourceType: "Project" }),
   async (req: Request, res: Response) => {
@@ -191,6 +206,8 @@ router.delete(
 router.patch(
   "/:id/status",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPM,
   audit({ action: "UPDATE_PROJECT_STATUS", resourceType: "Project" }),
   async (req: Request, res: Response) => {

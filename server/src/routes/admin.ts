@@ -5,10 +5,11 @@ import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { runAllRefreshTasks } from "../lib/monthly-refresh";
 import { prisma } from "../lib/prisma";
+import { attachCompany } from "../middleware/companyScope";
 
 const router = Router();
 
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, adminOnly);
 
 // Rate limit destructive operations: 5 requests per 15 minutes
 const destructiveLimiter = rateLimit({

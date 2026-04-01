@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { adminOrPMOrLead } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { canAssign, getAssignableUsers } from "../middleware/validateAssignment";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -35,7 +36,7 @@ const updateTaskSchema = z.object({
 
 // ─── GET /api/tasks/assignable-users?projectId=xxx ─────────────────────────
 // Returns users the current user is permitted to assign tasks to in a project
-router.get("/assignable-users", requireAuth, async (req: Request, res: Response) => {
+router.get("/assignable-users", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
   const { projectId } = req.query as { projectId?: string };
 
   if (!projectId) {
@@ -49,7 +50,7 @@ router.get("/assignable-users", requireAuth, async (req: Request, res: Response)
 });
 
 // ─── GET /api/tasks?projectId=xxx ──────────────────────────────────────────
-router.get("/", requireAuth, async (req: Request, res: Response) => {
+router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
   const { projectId } = req.query as { projectId?: string };
   const where: Record<string, unknown> = {};
 
@@ -62,6 +63,9 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
   if (role === "DEVELOPER" || role === "TESTER") {
     where.assigneeId = sub;
   }
+
+  const companyId = (req.user as any).companyId as string | undefined;
+  if (companyId) where.companyId = companyId;
 
   const tasks = await prisma.task.findMany({
     where,
@@ -77,6 +81,8 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
 router.post(
   "/",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPMOrLead,
   audit({ action: "CREATE_TASK", resourceType: "Task" }),
   async (req: Request, res: Response) => {
@@ -100,11 +106,13 @@ router.post(
       }
     }
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const task = await prisma.task.create({
       data: {
         ...parsed.data,
         dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
         createdById: sub,
+        companyId: companyId ?? undefined,
       },
       include: taskInclude,
     });
@@ -126,7 +134,7 @@ router.post(
 );
 
 // ─── GET /api/tasks/:id ────────────────────────────────────────────────────
-router.get("/:id", requireAuth, async (req: Request, res: Response) => {
+router.get("/:id", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
   const task = await prisma.task.findUnique({
     where: { id: req.params.id as string },
     include: taskInclude,
@@ -141,7 +149,7 @@ router.get("/:id", requireAuth, async (req: Request, res: Response) => {
 });
 
 // ─── GET /api/tasks/:id/history — assignment audit trail ───────────────────
-router.get("/:id/history", requireAuth, async (req: Request, res: Response) => {
+router.get("/:id/history", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
   const task = await prisma.task.findUnique({ where: { id: req.params.id as string } });
   if (!task) {
     res.status(404).json({ error: "Task not found" });
@@ -165,6 +173,8 @@ router.get("/:id/history", requireAuth, async (req: Request, res: Response) => {
 router.patch(
   "/:id",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   audit({ action: "UPDATE_TASK", resourceType: "Task" }),
   async (req: Request, res: Response) => {
     const parsed = updateTaskSchema.safeParse(req.body);
@@ -227,6 +237,8 @@ router.patch(
 router.patch(
   "/:id/assign",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPMOrLead,
   audit({ action: "REASSIGN_TASK", resourceType: "Task" }),
   async (req: Request, res: Response) => {
@@ -284,6 +296,8 @@ router.patch(
 router.delete(
   "/:id",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPMOrLead,
   audit({ action: "DELETE_TASK", resourceType: "Task" }),
   async (req: Request, res: Response) => {

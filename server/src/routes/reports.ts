@@ -3,20 +3,24 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { cache, TTL } from "../lib/cache";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
 // All report routes are admin-only
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/reports/summary — Dashboard KPIs
-router.get("/summary", async (_req: Request, res: Response) => {
-  const data = await cache.getOrSet("reports:summary", TTL.MEDIUM, async () => {
+router.get("/summary", async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const cacheKey = companyId ? `reports:summary:${companyId}` : "reports:summary";
+  const companyFilter = companyId ? { companyId } : {};
+  const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
     const [invoices, customers, projects, ledger] = await Promise.all([
-      prisma.invoice.findMany({ include: { items: true, payments: true } }),
-      prisma.customer.count(),
-      prisma.project.count(),
-      prisma.ledgerEntry.findMany(),
+      prisma.invoice.findMany({ where: companyFilter, include: { items: true, payments: true } }),
+      prisma.customer.count({ where: companyFilter }),
+      prisma.project.count({ where: companyFilter }),
+      prisma.ledgerEntry.findMany({ where: companyFilter }),
     ]);
 
     const totalInvoiced = invoices.reduce((sum, inv) => {
@@ -51,11 +55,14 @@ router.get("/summary", async (_req: Request, res: Response) => {
 });
 
 // GET /api/reports/revenue — Monthly revenue breakdown (last 12 months)
-router.get("/revenue", async (_req: Request, res: Response) => {
-  const data = await cache.getOrSet("reports:revenue", TTL.MEDIUM, async () => {
+router.get("/revenue", async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const cacheKey = companyId ? `reports:revenue:${companyId}` : "reports:revenue";
+  const companyFilter = companyId ? { companyId } : {};
+  const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
     const [invoices, ledger] = await Promise.all([
-      prisma.invoice.findMany({ include: { items: true, payments: true }, orderBy: { createdAt: "asc" } }),
-      prisma.ledgerEntry.findMany({ orderBy: { date: "asc" } }),
+      prisma.invoice.findMany({ where: companyFilter, include: { items: true, payments: true }, orderBy: { createdAt: "asc" } }),
+      prisma.ledgerEntry.findMany({ where: companyFilter, orderBy: { date: "asc" } }),
     ]);
 
     const months: { month: string; revenue: number; expenses: number }[] = [];
@@ -88,9 +95,12 @@ router.get("/revenue", async (_req: Request, res: Response) => {
 });
 
 // GET /api/reports/gst — GST collection breakdown
-router.get("/gst", async (_req: Request, res: Response) => {
-  const data = await cache.getOrSet("reports:gst", TTL.MEDIUM, async () => {
-    const invoices = await prisma.invoice.findMany({ include: { items: true } });
+router.get("/gst", async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const cacheKey = companyId ? `reports:gst:${companyId}` : "reports:gst";
+  const companyFilter = companyId ? { companyId } : {};
+  const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
+    const invoices = await prisma.invoice.findMany({ where: companyFilter, include: { items: true } });
     return invoices.reduce(
       (acc, inv) => {
         const subtotal = inv.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
@@ -106,9 +116,13 @@ router.get("/gst", async (_req: Request, res: Response) => {
 });
 
 // GET /api/reports/top-clients
-router.get("/top-clients", async (_req: Request, res: Response) => {
-  const data = await cache.getOrSet("reports:top-clients", TTL.MEDIUM, async () => {
+router.get("/top-clients", async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const cacheKey = companyId ? `reports:top-clients:${companyId}` : "reports:top-clients";
+  const companyFilter = companyId ? { companyId } : {};
+  const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
     const customers = await prisma.customer.findMany({
+      where: companyFilter,
       include: { invoices: { include: { payments: true } } },
     });
     return customers

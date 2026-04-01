@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AttendanceStatus, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -36,7 +37,7 @@ async function getAllowedUserIds(requesterId: string, role: Role): Promise<strin
 }
 
 // GET /api/attendance?userId=&year=&month=
-router.get("/", requireAuth, async (req: Request, res: Response) => {
+router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const { userId, year, month } = req.query as {
     userId?: string;
     year?: string;
@@ -81,7 +82,7 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
 });
 
 // POST /api/attendance — mark or update own attendance
-router.post("/", requireAuth, async (req: Request, res: Response) => {
+router.post("/", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const parsed = markSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
@@ -91,9 +92,10 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
   const { date, status, note } = parsed.data;
   const dateObj = new Date(date);
 
+  const companyId = (req.user as any).companyId as string | undefined;
   const record = await prisma.attendance.upsert({
     where: { userId_date: { userId: req.user!.sub, date: dateObj } },
-    create: { userId: req.user!.sub, date: dateObj, status, note },
+    create: { userId: req.user!.sub, date: dateObj, status, note, companyId: companyId ?? undefined },
     update: { status, note, markedAt: new Date() },
     include: { user: { select: { id: true, name: true, initials: true } } },
   });
@@ -102,7 +104,7 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
 });
 
 // GET /api/attendance/summary?userId=&year=&month= — monthly counts for a user
-router.get("/summary", requireAuth, async (req: Request, res: Response) => {
+router.get("/summary", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const { userId, year, month } = req.query as {
     userId?: string;
     year?: string;

@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -20,15 +21,17 @@ const createEntrySchema = z.object({
 });
 
 // All ledger routes are admin-only
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/ledger
 router.get("/", async (req: Request, res: Response) => {
   const { category, status } = req.query as { category?: string; status?: LedgerStatus };
+  const companyId = (req.user as any).companyId as string | undefined;
 
   const where: Record<string, unknown> = {};
   if (category) where.category = category;
   if (status) where.status = status;
+  if (companyId) where.companyId = companyId;
 
   const entries = await prisma.ledgerEntry.findMany({
     where,
@@ -50,8 +53,9 @@ router.post(
       return;
     }
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const entry = await prisma.ledgerEntry.create({
-      data: { ...parsed.data, date: new Date(parsed.data.date) },
+      data: { ...parsed.data, date: new Date(parsed.data.date), companyId: companyId ?? undefined },
     });
 
     res.status(201).json(entry);

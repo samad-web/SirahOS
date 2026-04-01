@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -17,11 +18,12 @@ const updateNoteSchema = z.object({
   content: z.string().optional(),
 });
 
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, adminOnly);
 
 // GET /api/notes
-router.get("/", async (_req: Request, res: Response) => {
-  const notes = await prisma.note.findMany({ orderBy: { updatedAt: "desc" }, take: 200 });
+router.get("/", async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
+  const notes = await prisma.note.findMany({ where: companyId ? { companyId } : {}, orderBy: { updatedAt: "desc" }, take: 200 });
   res.json(notes);
 });
 
@@ -35,7 +37,8 @@ router.post(
       res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       return;
     }
-    const note = await prisma.note.create({ data: parsed.data });
+    const companyId = (req.user as any).companyId as string | undefined;
+    const note = await prisma.note.create({ data: { ...parsed.data, companyId: companyId ?? undefined } });
     res.status(201).json(note);
   }
 );

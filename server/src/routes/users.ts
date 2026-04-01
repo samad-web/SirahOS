@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -28,8 +29,10 @@ const updateReportsToSchema = z.object({
 });
 
 // GET /api/users — Admin only
-router.get("/", requireAuth, adminOnly, async (_req: Request, res: Response) => {
+router.get("/", requireAuth, attachCompany, adminOnly, async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
   const users = await prisma.user.findMany({
+    where: companyId ? { companyId } as any : {},
     select: {
       id: true, name: true, email: true, role: true,
       status: true, initials: true, createdAt: true,
@@ -42,9 +45,10 @@ router.get("/", requireAuth, adminOnly, async (_req: Request, res: Response) => 
 });
 
 // GET /api/users/assignable — All authenticated users (for assignment dropdowns)
-router.get("/assignable", requireAuth, async (_req: Request, res: Response) => {
+router.get("/assignable", requireAuth, attachCompany, async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
   const users = await prisma.user.findMany({
-    where: { status: "ACTIVE" },
+    where: { status: "ACTIVE", ...(companyId ? { companyId } : {}) } as any,
     select: {
       id: true, name: true, email: true, role: true, initials: true,
       reportsToId: true,
@@ -59,6 +63,7 @@ router.get("/assignable", requireAuth, async (_req: Request, res: Response) => {
 router.post(
   "/",
   requireAuth,
+  attachCompany,
   adminOnly,
   audit({ action: "CREATE_USER", resourceType: "User" }),
   async (req: Request, res: Response) => {
@@ -84,11 +89,13 @@ router.post(
       .toUpperCase()
       .slice(0, 2);
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const user = await prisma.user.create({
       data: {
         name, email: email.toLowerCase(), passwordHash, role, initials,
         reportsToId: reportsToId || null,
-      },
+        companyId: companyId ?? undefined,
+      } as any,
       select: {
         id: true, name: true, email: true, role: true, status: true,
         initials: true, createdAt: true, reportsToId: true,

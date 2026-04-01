@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { cache, TTL } from "../lib/cache";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -29,7 +30,7 @@ async function supabaseQuery(table: string, params: URLSearchParams): Promise<{ 
   return { data, count };
 }
 
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, requireFeature("leads"), adminOnly);
 
 // ─── GET /api/leads — List leads from Supabase ──────────────────────────────
 

@@ -22,6 +22,7 @@ import noteRoutes from "./routes/notes";
 import leadRoutes from "./routes/leads";
 import adminRoutes from "./routes/admin";
 import fineRoutes from "./routes/fines";
+import companyRoutes from "./routes/companies";
 import { initScheduler, stopScheduler } from "./lib/scheduler";
 import { verifyDatabaseConnection, disconnectPrisma } from "./lib/prisma";
 import { requestTimeout } from "./middleware/timeout";
@@ -155,6 +156,7 @@ app.use("/api/notes", noteRoutes);
 app.use("/api/leads", leadRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/fines", fineRoutes);
+app.use("/api/companies", companyRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 app.use((_req, res) => {

@@ -271,7 +271,17 @@ export const leavesApi = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type UserRole = "ADMIN" | "PROJECT_MANAGER" | "LEAD" | "DEVELOPER" | "TESTER";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "PROJECT_MANAGER" | "LEAD" | "DEVELOPER" | "TESTER";
+
+export interface CompanyFeatures {
+  id: string;
+  name: string;
+  slug: string;
+  featureBilling: boolean;
+  featureProjects: boolean;
+  featureAttendance: boolean;
+  featureLeads: boolean;
+}
 
 export interface AppUser {
   id: string;
@@ -280,6 +290,8 @@ export interface AppUser {
   role: UserRole;
   status: "ACTIVE" | "INACTIVE";
   initials?: string;
+  companyId?: string | null;
+  company?: CompanyFeatures | null;
   reportsToId?: string | null;
   reportsTo?: Pick<AppUser, "id" | "name" | "initials" | "role"> | null;
   createdAt?: string;
@@ -653,3 +665,45 @@ export interface FineSummary extends FineUserSummary {
     count:   number;
   }[];
 }
+
+// ─── Super Admin Types ───────────────────────────────────────────────────────
+
+export interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  status: "ACTIVE" | "SUSPENDED";
+  featureBilling: boolean;
+  featureProjects: boolean;
+  featureAttendance: boolean;
+  featureLeads: boolean;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { users: number };
+  users?: Pick<AppUser, "id" | "name" | "email">[];
+  userStats?: { total: number; active: number; inactive: number };
+}
+
+export interface CreateCompanyPayload {
+  companyName: string;
+  companySlug: string;
+  adminName: string;
+  adminEmail: string;
+  adminPassword: string;
+  features: {
+    billing: boolean;
+    projects: boolean;
+    attendance: boolean;
+    leads: boolean;
+  };
+}
+
+export const superAdminApi = {
+  listCompanies: () => api.get<Company[]>("/companies"),
+  getCompany: (id: string) => api.get<Company>(`/companies/${id}`),
+  createCompany: (data: CreateCompanyPayload) => api.post<{ company: Company; admin: AppUser }>("/companies", data),
+  updateCompany: (id: string, data: Partial<Company>) => api.patch<Company>(`/companies/${id}`, data),
+  suspendCompany: (id: string) => api.patch<Company>(`/companies/${id}`, { status: "SUSPENDED" }),
+  reactivateCompany: (id: string) => api.patch<Company>(`/companies/${id}`, { status: "ACTIVE" }),
+  getCompanyUsers: (id: string) => api.get<AppUser[]>(`/companies/${id}/users`),
+};

@@ -46,15 +46,27 @@ const allSections: NavSection[] = [
   },
 ];
 
+// Map paths to feature flags for filtering
+const PATH_FEATURE_MAP: Record<string, "billing" | "projects" | "attendance" | "leads"> = {
+  "/projects": "projects",
+  "/invoices": "billing",
+  "/customers": "billing",
+  "/expenses": "billing",
+  "/ledger": "billing",
+  "/attendance": "attendance",
+  "/leads": "leads",
+};
+
 export function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, hasFeature } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const role = user?.role ?? "DEVELOPER";
+  const isSuperAdmin = role === "SUPER_ADMIN";
   const allowed = ROUTE_ACCESS;
-  const canSettings = (allowed["/settings"] ?? []).includes(role);
+  const canSettings = !isSuperAdmin && (allowed["/settings"] ?? []).includes(role);
   const { label: roleLbl, cls: roleCls } = ROLE_LABELS[role];
 
   // Close mobile sidebar on route change
@@ -74,9 +86,22 @@ export function AppSidebar() {
     setMobileOpen(false);
   };
 
-  // Filter sections by role
+  // Filter sections by role and feature flags
+  // SUPER_ADMIN only sees the Dashboard link
   const sections = allSections
-    .map(s => ({ ...s, items: s.items.filter(item => (allowed[item.path] ?? []).includes(role)) }))
+    .map(s => ({
+      ...s,
+      items: s.items.filter(item => {
+        // Role check
+        if (!(allowed[item.path] ?? []).includes(role)) return false;
+        // SUPER_ADMIN only sees Dashboard
+        if (isSuperAdmin && item.path !== "/") return false;
+        // Feature flag check
+        const flag = PATH_FEATURE_MAP[item.path];
+        if (flag && !hasFeature(flag)) return false;
+        return true;
+      }),
+    }))
     .filter(s => s.items.length > 0);
 
   const sidebarContent = (expanded: boolean) => (
@@ -84,7 +109,7 @@ export function AppSidebar() {
       {/* Logo */}
       <div className={`flex items-center ${expanded ? "gap-3 px-4" : "justify-center"} h-14 border-b border-sidebar-border flex-shrink-0`}>
         <button
-          onClick={() => navTo(role === "ADMIN" ? "/" : "/projects")}
+          onClick={() => navTo(role === "ADMIN" || role === "SUPER_ADMIN" ? "/" : "/projects")}
           className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden"
         >
           <img src="/logo.png" alt="Sirahos" className="w-full h-full object-contain" />

@@ -85,7 +85,7 @@ router.post("/login", async (req: Request, res: Response) => {
   }
 
   clearLoginAttempts(normalizedEmail);
-  const payload = { sub: user.id, email: user.email, role: user.role };
+  const payload = { sub: user.id, email: user.email, role: user.role, companyId: user.companyId ?? null };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
@@ -103,6 +103,7 @@ router.post("/login", async (req: Request, res: Response) => {
       role: user.role,
       status: user.status,
       initials: user.initials,
+      companyId: user.companyId,
     },
   });
 });
@@ -133,11 +134,11 @@ router.post("/refresh", async (req: Request, res: Response) => {
 
   // Rotate refresh token
   await prisma.refreshToken.delete({ where: { token: refreshToken } });
-  const newRefreshToken = generateRefreshToken({ sub: payload.sub, email: payload.email, role: payload.role });
+  const newRefreshToken = generateRefreshToken({ sub: payload.sub, email: payload.email, role: payload.role, companyId: payload.companyId ?? null });
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await prisma.refreshToken.create({ data: { token: newRefreshToken, userId: payload.sub, expiresAt } });
 
-  const newAccessToken = generateAccessToken({ sub: payload.sub, email: payload.email, role: payload.role });
+  const newAccessToken = generateAccessToken({ sub: payload.sub, email: payload.email, role: payload.role, companyId: payload.companyId ?? null });
 
   res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
 });
@@ -155,7 +156,17 @@ router.post("/logout", requireAuth, async (req: Request, res: Response) => {
 router.get("/me", requireAuth, async (req: Request, res: Response) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.sub },
-    select: { id: true, name: true, email: true, role: true, status: true, initials: true, createdAt: true },
+    select: {
+      id: true, name: true, email: true, role: true, status: true, initials: true, createdAt: true,
+      companyId: true,
+      company: {
+        select: {
+          id: true, name: true, slug: true,
+          featureBilling: true, featureProjects: true,
+          featureAttendance: true, featureLeads: true,
+        },
+      },
+    },
   });
 
   if (!user) {

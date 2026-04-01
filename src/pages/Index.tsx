@@ -13,6 +13,7 @@ import {
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
+import { SuperAdminDashboard } from "@/components/super-admin/SuperAdminDashboard";
 import { reportsApi, customersApi, expensesApi, invoicesApi, finesApi } from "@/lib/api";
 import type { ReportSummary, RevenueMonth, TopClient, Invoice, FineSummary } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
@@ -81,6 +82,18 @@ interface AlertItem {
 const Index = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // SUPER_ADMIN sees company management dashboard
+  if (user?.role === "SUPER_ADMIN") {
+    return (
+      <div className="flex h-screen overflow-hidden">
+        <AppSidebar />
+        <main className="flex-1 overflow-y-auto bg-background">
+          <SuperAdminDashboard />
+        </main>
+      </div>
+    );
+  }
   const [gst, setGst] = useState<GSTInfo>(loadGST);
   const [editingGST, setEditingGST] = useState(false);
   const [gstSaved, setGstSaved] = useState(false);

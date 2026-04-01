@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -26,13 +27,17 @@ const updateExpenseSchema = z.object({
   receiptNotes: z.string().nullable().optional(),
 });
 
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/expenses
 router.get("/", async (req: Request, res: Response) => {
   const { category } = req.query as { category?: ExpenseCategory };
+  const companyId = (req.user as any).companyId as string | undefined;
+  const where: Record<string, unknown> = {};
+  if (category) where.category = category;
+  if (companyId) where.companyId = companyId;
   const expenses = await prisma.expense.findMany({
-    where: category ? { category } : {},
+    where,
     orderBy: { date: "desc" },
     take: 500,
   });
@@ -49,8 +54,9 @@ router.post(
       res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       return;
     }
+    const companyId = (req.user as any).companyId as string | undefined;
     const expense = await prisma.expense.create({
-      data: { ...parsed.data, date: new Date(parsed.data.date) },
+      data: { ...parsed.data, date: new Date(parsed.data.date), companyId: companyId ?? undefined },
     });
     res.status(201).json(expense);
   }

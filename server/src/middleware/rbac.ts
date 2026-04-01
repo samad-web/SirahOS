@@ -12,6 +12,12 @@ export function requireRole(...roles: Role[]) {
       return;
     }
 
+    // SUPER_ADMIN bypasses role checks
+    if (req.user.role === "SUPER_ADMIN") {
+      next();
+      return;
+    }
+
     if (!roles.includes(req.user.role)) {
       res.status(403).json({
         error: "Forbidden",

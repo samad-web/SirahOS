@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { cache } from "../lib/cache";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -45,12 +46,15 @@ const addPaymentSchema = z.object({
 });
 
 // All invoice routes are admin-only
-router.use(requireAuth, adminOnly);
+router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/invoices
 router.get("/", async (req: Request, res: Response) => {
   const { status } = req.query as { status?: InvoiceStatus };
-  const where = status ? { status } : {};
+  const companyId = (req.user as any).companyId as string | undefined;
+  const where: Record<string, unknown> = {};
+  if (status) where.status = status;
+  if (companyId) where.companyId = companyId;
 
   const invoices = await prisma.invoice.findMany({
     where,
@@ -74,11 +78,13 @@ router.post(
 
     const { items, ...invoiceData } = parsed.data;
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const invoice = await prisma.invoice.create({
       data: {
         ...invoiceData,
         dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate) : undefined,
         items: { create: items },
+        companyId: companyId ?? undefined,
       },
       include: invoiceInclude,
     });

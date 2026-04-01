@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOrPM } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -33,7 +34,7 @@ const updateBugStatusSchema = z.object({
 });
 
 // GET /api/bugs?projectId=xxx
-router.get("/", requireAuth, async (req: Request, res: Response) => {
+router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
   const { projectId } = req.query as { projectId?: string };
   const { role, sub } = req.user!;
 
@@ -44,6 +45,9 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
   if (role === Role.DEVELOPER) {
     where.assignedToId = sub;
   }
+
+  const companyId = (req.user as any).companyId as string | undefined;
+  if (companyId) where.companyId = companyId;
 
   const bugs = await prisma.bugReport.findMany({
     where,
@@ -59,6 +63,8 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
 router.post(
   "/",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   audit({ action: "REPORT_BUG", resourceType: "BugReport" }),
   async (req: Request, res: Response) => {
     const { role } = req.user!;
@@ -75,10 +81,12 @@ router.post(
       return;
     }
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const bug = await prisma.bugReport.create({
       data: {
         ...parsed.data,
         reportedById: req.user!.sub,
+        companyId: companyId ?? undefined,
       },
       include: bugInclude,
     });
@@ -91,6 +99,8 @@ router.post(
 router.patch(
   "/:id/assign",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   adminOrPM,
   audit({ action: "ASSIGN_BUG", resourceType: "BugReport" }),
   async (req: Request, res: Response) => {
@@ -117,6 +127,8 @@ router.patch(
 router.patch(
   "/:id/status",
   requireAuth,
+  attachCompany,
+  requireFeature("projects"),
   audit({ action: "UPDATE_BUG_STATUS", resourceType: "BugReport" }),
   async (req: Request, res: Response) => {
     const parsed = updateBugStatusSchema.safeParse(req.body);

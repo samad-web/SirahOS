@@ -5,9 +5,9 @@ import { Eye, EyeOff, LogIn, ShieldCheck, FolderKanban, Code2, TestTube2, Users 
 import { useAuth, ROLE_LABELS, Role } from "@/contexts/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-const roleHomeRoute = (role: Role) => role === "ADMIN" ? "/" : "/projects";
+const roleHomeRoute = (role: Role) => (role === "ADMIN" || role === "SUPER_ADMIN") ? "/" : "/projects";
 
-const roleIcons: Record<Role, React.ElementType> = {
+const roleIcons: Partial<Record<Role, React.ElementType>> = {
   ADMIN:           ShieldCheck,
   PROJECT_MANAGER: FolderKanban,
   LEAD:            Users,

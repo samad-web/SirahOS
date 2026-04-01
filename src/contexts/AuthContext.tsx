@@ -6,6 +6,7 @@ import { authApi, usersApi, tokenStorage, AppUser, UserRole } from "@/lib/api";
 export type Role = UserRole; // re-export for backward compat
 
 export const ROLE_LABELS: Record<UserRole, { label: string; cls: string }> = {
+  SUPER_ADMIN:     { label: "Super Admin",     cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
   ADMIN:           { label: "Admin",           cls: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
   PROJECT_MANAGER: { label: "Project Manager", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
   LEAD:            { label: "Lead",            cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" },
@@ -15,7 +16,7 @@ export const ROLE_LABELS: Record<UserRole, { label: string; cls: string }> = {
 
 // Route access: which roles are allowed per path
 export const ROUTE_ACCESS: Record<string, UserRole[]> = {
-  "/":           ["ADMIN"],
+  "/":           ["SUPER_ADMIN", "ADMIN"],
   "/employees":  ["ADMIN"],
   "/projects":   ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
   "/attendance": ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
@@ -26,15 +27,19 @@ export const ROUTE_ACCESS: Record<string, UserRole[]> = {
   "/notes":      ["ADMIN"],
   "/leads":      ["ADMIN"],
   "/settings":   ["ADMIN", "PROJECT_MANAGER"],
-  "/profile":    ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
+  "/profile":    ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
+  "/companies":  ["SUPER_ADMIN"],
 };
 
 // ─── Context types ────────────────────────────────────────────────────────────
+
+export type FeatureFlag = "billing" | "projects" | "attendance" | "leads";
 
 interface AuthCtx {
   user: AppUser | null;
   allUsers: AppUser[];
   isLoading: boolean;
+  hasFeature: (flag: FeatureFlag) => boolean;
   login: (email: string, password: string) => Promise<{ ok: boolean; role?: UserRole; error?: string }>;
   logout: () => Promise<void>;
   addUser: (data: { name: string; email: string; password: string; role: UserRole; reportsToId?: string }) => Promise<void>;
@@ -118,8 +123,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAllUsers((prev) => prev.map((u) => (u.id === id ? { ...u, status: updated.status } : u)));
   }, [allUsers]);
 
+  const hasFeature = useCallback((flag: FeatureFlag): boolean => {
+    if (user?.role === "SUPER_ADMIN") return true;
+    if (!user?.company) return false;
+    const map: Record<FeatureFlag, keyof typeof user.company> = {
+      billing: "featureBilling",
+      projects: "featureProjects",
+      attendance: "featureAttendance",
+      leads: "featureLeads",
+    };
+    return !!user.company[map[flag]];
+  }, [user]);
+
   return (
-    <Ctx.Provider value={{ user, allUsers, isLoading, login, logout, addUser, toggleStatus }}>
+    <Ctx.Provider value={{ user, allUsers, isLoading, hasFeature, login, logout, addUser, toggleStatus }}>
       {children}
     </Ctx.Provider>
   );

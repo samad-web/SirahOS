@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -16,13 +17,15 @@ const createFineSchema = z.object({
 });
 
 // GET /api/fines — Admin gets all fines, non-admin gets only their own
-router.get("/", requireAuth, async (req: Request, res: Response) => {
-  const isAdmin = req.user!.role === "ADMIN";
+router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const userId = req.query.userId as string | undefined;
+  const companyId = (req.user as any).companyId as string | undefined;
 
-  const where = isAdmin
+  const where: Record<string, unknown> = isAdmin
     ? userId ? { userId } : {}
     : { userId: req.user!.sub };
+  if (companyId) where.companyId = companyId;
 
   const fines = await prisma.fine.findMany({
     where,
@@ -37,8 +40,10 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
 });
 
 // GET /api/fines/summary — Admin only: total fines, paid, unpaid per user
-router.get("/summary", requireAuth, adminOnly, async (_req: Request, res: Response) => {
+router.get("/summary", requireAuth, attachCompany, requireFeature("attendance"), adminOnly, async (req: Request, res: Response) => {
+  const companyId = (req.user as any).companyId as string | undefined;
   const fines = await prisma.fine.findMany({
+    where: companyId ? { companyId } : {},
     select: {
       amount: true,
       paid: true,
@@ -74,7 +79,7 @@ router.get("/summary", requireAuth, adminOnly, async (_req: Request, res: Respon
 });
 
 // GET /api/fines/my-summary — Any user: their own fine totals
-router.get("/my-summary", requireAuth, async (req: Request, res: Response) => {
+router.get("/my-summary", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const fines = await prisma.fine.findMany({
     where: { userId: req.user!.sub },
     select: { amount: true, paid: true },
@@ -95,6 +100,8 @@ router.get("/my-summary", requireAuth, async (req: Request, res: Response) => {
 router.post(
   "/",
   requireAuth,
+  attachCompany,
+  requireFeature("attendance"),
   adminOnly,
   audit({ action: "CREATE_FINE", resourceType: "Fine" }),
   async (req: Request, res: Response) => {
@@ -117,12 +124,14 @@ router.post(
       return;
     }
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const fine = await prisma.fine.create({
       data: {
         userId,
         amount,
         reason,
         issuedById: req.user!.sub,
+        companyId: companyId ?? undefined,
       },
       include: {
         user: { select: userSelect },
@@ -138,6 +147,8 @@ router.post(
 router.patch(
   "/:id/paid",
   requireAuth,
+  attachCompany,
+  requireFeature("attendance"),
   adminOnly,
   audit({ action: "UPDATE_FINE", resourceType: "Fine" }),
   async (req: Request, res: Response) => {
@@ -160,6 +171,8 @@ router.patch(
 router.delete(
   "/:id",
   requireAuth,
+  attachCompany,
+  requireFeature("attendance"),
   adminOnly,
   audit({ action: "DELETE_FINE", resourceType: "Fine" }),
   async (req: Request, res: Response) => {

@@ -4,6 +4,7 @@ import { LeaveType, LeaveStatus, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { audit } from "../middleware/audit";
+import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -102,7 +103,7 @@ const leaveInclude = {
 };
 
 // GET /api/leaves?status=&userId=
-router.get("/", requireAuth, async (req: Request, res: Response) => {
+router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const { status, userId } = req.query as { status?: LeaveStatus; userId?: string };
   const { sub, role } = req.user!;
 
@@ -132,6 +133,8 @@ router.get("/", requireAuth, async (req: Request, res: Response) => {
 router.post(
   "/",
   requireAuth,
+  attachCompany,
+  requireFeature("attendance"),
   audit({ action: "REQUEST_LEAVE", resourceType: "Leave" }),
   async (req: Request, res: Response) => {
     const parsed = createLeaveSchema.safeParse(req.body);
@@ -149,6 +152,7 @@ router.post(
       return;
     }
 
+    const companyId = (req.user as any).companyId as string | undefined;
     const leave = await prisma.leave.create({
       data: {
         userId: req.user!.sub,
@@ -156,6 +160,7 @@ router.post(
         startDate: start,
         endDate:   end,
         reason,
+        companyId: companyId ?? undefined,
         timeline: {
           create: {
             status:     LeaveStatus.REQUESTED,
@@ -175,6 +180,8 @@ router.post(
 router.patch(
   "/:id/review",
   requireAuth,
+  attachCompany,
+  requireFeature("attendance"),
   audit({ action: "REVIEW_LEAVE", resourceType: "Leave" }),
   async (req: Request, res: Response) => {
     const parsed = reviewLeaveSchema.safeParse(req.body);
@@ -240,7 +247,7 @@ router.patch(
 );
 
 // GET /api/leaves/balance?userId=&year=
-router.get("/balance", requireAuth, async (req: Request, res: Response) => {
+router.get("/balance", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const { userId, year } = req.query as { userId?: string; year?: string };
   const { sub, role } = req.user!;
 
@@ -263,7 +270,7 @@ router.get("/balance", requireAuth, async (req: Request, res: Response) => {
 });
 
 // GET /api/leaves/balances/all — all users' balances (Admin/PM)
-router.get("/balances/all", requireAuth, async (req: Request, res: Response) => {
+router.get("/balances/all", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const { role } = req.user!;
 
   if (role !== Role.ADMIN && role !== Role.PROJECT_MANAGER) {
@@ -288,6 +295,8 @@ router.get("/balances/all", requireAuth, async (req: Request, res: Response) => 
 router.post(
   "/balance",
   requireAuth,
+  attachCompany,
+  requireFeature("attendance"),
   audit({ action: "ASSIGN_LEAVE_BALANCE", resourceType: "LeaveBalance" }),
   async (req: Request, res: Response) => {
     const { role } = req.user!;
