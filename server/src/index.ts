@@ -42,7 +42,8 @@ process.on("unhandledRejection", (reason) => {
 // ─── Express app setup ──────────────────────────────────────────────────────
 
 const app = express();
-const PORT = process.env.PORT ?? 3001;
+const PORT = parseInt(process.env.PORT ?? "3001", 10);
+const HOST = "0.0.0.0";
 const startTime = Date.now();
 
 // ─── Trust proxy (required behind Render / cloud load balancers) ────────────
@@ -236,7 +237,7 @@ async function start() {
     logger.db.info("Connected");
   }
 
-  server = app.listen(PORT, () => {
+  server = app.listen(PORT, HOST, () => {
     logger.server.info(`Sirahos API running on http://localhost:${PORT}`);
     logger.server.info(`Environment: ${process.env.NODE_ENV ?? "development"}`);
     initScheduler();
