@@ -5,6 +5,7 @@ import { getUserCompanyId } from "./auth";
 
 // Extend Express Request to carry company
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       company?: Company;
