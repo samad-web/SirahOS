@@ -6,9 +6,14 @@ export interface JwtPayload {
   sub: string;      // user id
   email: string;
   role: Role;
-  companyId?: string | null;  // null for SUPER_ADMIN
+  companyId: string | null;  // null for SUPER_ADMIN
   iat?: number;
   exp?: number;
+}
+
+/** Safely extract companyId from the authenticated user — returns undefined for SUPER_ADMIN */
+export function getUserCompanyId(req: Request): string | undefined {
+  return req.user?.companyId ?? undefined;
 }
 
 // Extend Express Request to carry the authenticated user

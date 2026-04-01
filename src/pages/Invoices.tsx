@@ -12,10 +12,11 @@ import { toast } from "sonner";
 
 interface FormLineItem { id: string; description: string; unitPrice: number; quantity: number; }
 
+/** All currency math uses integer cents internally to avoid floating-point errors */
 const getSubtotal = (items: { quantity: number; unitPrice: number }[]) =>
-  items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-const getGSTAmt  = (sub: number, rate: number) => Math.round(sub * rate / 100);
-const getTotal   = (sub: number, gst: number) => sub + gst;
+  items.reduce((s, i) => s + Math.round(i.quantity * i.unitPrice * 100), 0) / 100;
+const getGSTAmt  = (sub: number, rate: number) => Math.round(sub * rate * 100 / 100) / 100;
+const getTotal   = (sub: number, gst: number) => Math.round((sub + gst) * 100) / 100;
 const getAmountPaid = (inv: Invoice) =>
   (inv.payments ?? []).reduce((s, p) => s + p.amount, 0);
 const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -54,7 +55,7 @@ export default function Invoices() {
       setInvoices(invRes.data);
       setCustomers(custRes.data);
     } catch {
-      // handled by UI state
+      toast.error("Failed to load invoices. Please try again.");
     } finally {
       setLoading(false);
     }

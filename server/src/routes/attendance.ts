@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { AttendanceStatus, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
 
 const router = Router();
@@ -66,10 +66,12 @@ router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async 
       ? undefined
       : { in: allowed };
 
+  const companyId = getUserCompanyId(req);
   const records = await prisma.attendance.findMany({
     where: {
       ...(userIdFilter ? { userId: userIdFilter as string } : {}),
       ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}),
+      ...(companyId ? { companyId } : {}),
     },
     include: {
       user: { select: { id: true, name: true, initials: true, role: true } },
@@ -92,7 +94,7 @@ router.post("/", requireAuth, attachCompany, requireFeature("attendance"), async
   const { date, status, note } = parsed.data;
   const dateObj = new Date(date);
 
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const record = await prisma.attendance.upsert({
     where: { userId_date: { userId: req.user!.sub, date: dateObj } },
     create: { userId: req.user!.sub, date: dateObj, status, note, companyId: companyId ?? undefined },

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { Company } from "@prisma/client";
+import { getUserCompanyId } from "./auth";
 
 // Extend Express Request to carry company
 declare global {
@@ -33,7 +34,7 @@ export function attachCompany(req: Request, res: Response, next: NextFunction): 
     return;
   }
 
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
 
   if (!companyId) {
     res.status(403).json({ error: "No company assigned to this user" });
@@ -72,4 +73,16 @@ export function requireFeature(flag: FeatureFlag) {
 
     next();
   };
+}
+
+/**
+ * Verifies that a resource belongs to the requesting user's company.
+ * Use for GET/:id, PATCH/:id, DELETE/:id routes on company-scoped resources.
+ * Must be used AFTER attachCompany.
+ */
+export function requireCompanyMatch(resourceCompanyId: string | null | undefined, req: Request): boolean {
+  if (req.user!.role === "SUPER_ADMIN") return true;
+  const userCompanyId = getUserCompanyId(req);
+  if (!userCompanyId) return false;
+  return resourceCompanyId === userCompanyId;
 }

@@ -22,7 +22,12 @@ export function ProtectedRoute({ children, allowedRoles, feature }: Props) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  // SUPER_ADMIN with a companyId is treated as having ADMIN access too
+  const effectiveRoles: Role[] = user.role === "SUPER_ADMIN" && user.companyId
+    ? ["SUPER_ADMIN", "ADMIN"]
+    : [user.role];
+
+  if (allowedRoles && !effectiveRoles.some(r => allowedRoles.includes(r))) {
     return <Navigate to={user.role === "ADMIN" || user.role === "SUPER_ADMIN" ? "/" : "/projects"} replace />;
   }
 

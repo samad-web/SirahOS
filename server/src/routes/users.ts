@@ -1,12 +1,19 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import rateLimit from "express-rate-limit";
 import { Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { attachCompany } from "../middleware/companyScope";
+
+const passwordChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: "Too many password change attempts, please try again later." },
+});
 
 const router = Router();
 
@@ -30,9 +37,9 @@ const updateReportsToSchema = z.object({
 
 // GET /api/users — Admin only
 router.get("/", requireAuth, attachCompany, adminOnly, async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const users = await prisma.user.findMany({
-    where: companyId ? { companyId } as any : {},
+    where: companyId ? { companyId } : {},
     select: {
       id: true, name: true, email: true, role: true,
       status: true, initials: true, createdAt: true,
@@ -46,9 +53,9 @@ router.get("/", requireAuth, attachCompany, adminOnly, async (req: Request, res:
 
 // GET /api/users/assignable — All authenticated users (for assignment dropdowns)
 router.get("/assignable", requireAuth, attachCompany, async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const users = await prisma.user.findMany({
-    where: { status: "ACTIVE", ...(companyId ? { companyId } : {}) } as any,
+    where: { status: "ACTIVE", ...(companyId ? { companyId } : {}) },
     select: {
       id: true, name: true, email: true, role: true, initials: true,
       reportsToId: true,
@@ -89,13 +96,13 @@ router.post(
       .toUpperCase()
       .slice(0, 2);
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const user = await prisma.user.create({
       data: {
         name, email: email.toLowerCase(), passwordHash, role, initials,
         reportsToId: reportsToId || null,
         companyId: companyId ?? undefined,
-      } as any,
+      },
       select: {
         id: true, name: true, email: true, role: true, status: true,
         initials: true, createdAt: true, reportsToId: true,
@@ -294,7 +301,7 @@ router.get("/profile", requireAuth, async (req: Request, res: Response) => {
 });
 
 // PATCH /api/users/profile — update own name/password
-router.patch("/profile", requireAuth, async (req: Request, res: Response) => {
+router.patch("/profile", requireAuth, passwordChangeLimiter, async (req: Request, res: Response) => {
   const parsed = updateProfileSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });

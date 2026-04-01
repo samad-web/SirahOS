@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { logger } from "../lib/logger";
 
 interface AuditOptions {
   action: string;
@@ -40,7 +41,7 @@ export function audit(opts: AuditOptions) {
               details: (details as Prisma.InputJsonValue) ?? undefined,
             },
           })
-          .catch((err) => console.error("[Audit] Failed to write log:", err));
+          .catch((err) => logger.audit.error("Failed to write log", err));
       }
 
       return result;

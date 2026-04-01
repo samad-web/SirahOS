@@ -1,10 +1,10 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
-import { attachCompany } from "../middleware/companyScope";
+import { attachCompany, requireCompanyMatch } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -22,7 +22,7 @@ router.use(requireAuth, attachCompany, adminOnly);
 
 // GET /api/notes
 router.get("/", async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const notes = await prisma.note.findMany({ where: companyId ? { companyId } : {}, orderBy: { updatedAt: "desc" }, take: 200 });
   res.json(notes);
 });
@@ -37,7 +37,7 @@ router.post(
       res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       return;
     }
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const note = await prisma.note.create({ data: { ...parsed.data, companyId: companyId ?? undefined } });
     res.status(201).json(note);
   }
@@ -53,6 +53,10 @@ router.patch(
       res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       return;
     }
+    const existing = await prisma.note.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Note not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     const note = await prisma.note.update({ where: { id: req.params.id as string }, data: parsed.data });
     res.json(note);
   }
@@ -63,6 +67,10 @@ router.delete(
   "/:id",
   audit({ action: "DELETE_NOTE", resourceType: "Note" }),
   async (req: Request, res: Response) => {
+    const existing = await prisma.note.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Note not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     await prisma.note.delete({ where: { id: req.params.id as string } });
     res.json({ ok: true });
   }

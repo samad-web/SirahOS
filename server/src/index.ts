@@ -26,16 +26,17 @@ import companyRoutes from "./routes/companies";
 import { initScheduler, stopScheduler } from "./lib/scheduler";
 import { verifyDatabaseConnection, disconnectPrisma } from "./lib/prisma";
 import { requestTimeout } from "./middleware/timeout";
+import { logger } from "./lib/logger";
 
 // ─── Process-level crash handlers (register FIRST) ──────────────────────────
 
 process.on("uncaughtException", (err) => {
-  console.error("[FATAL] Uncaught exception:", err);
+  logger.server.error("Uncaught exception", err);
   gracefulShutdown("uncaughtException");
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("[FATAL] Unhandled rejection:", reason);
+  logger.server.error("Unhandled rejection", reason);
 });
 
 // ─── Express app setup ──────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-// ─── Security Middleware ─────────────────────────────────────────────────────
+// ─── Security Middleware (OWASP headers) ────────────────────────────────────
 app.use(
   helmet({
     contentSecurityPolicy: process.env.NODE_ENV === "production" ? {
@@ -74,6 +75,12 @@ app.use(
         frameAncestors: ["'none'"],
       },
     } : false,
+    crossOriginEmbedderPolicy: false,
+    // Helmet v8 enables these by default, but be explicit:
+    xContentTypeOptions: true,       // X-Content-Type-Options: nosniff
+    xFrameOptions: { action: "deny" }, // X-Frame-Options: DENY
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    hsts: process.env.NODE_ENV === "production" ? { maxAge: 31536000, includeSubDomains: true } : false,
   })
 );
 // CORS: support comma-separated origins for production (e.g. "https://app.sirahos.com,https://sirahos.vercel.app")
@@ -197,7 +204,7 @@ app.use(
 
     // Everything else → 500 with error tracking ID
     const errorId = crypto.randomUUID();
-    console.error(`[Error ${errorId}]`, err.stack ?? err.message);
+    logger.server.error(`Error ${errorId}: ${err.stack ?? err.message}`);
 
     res.status(500).json({
       error: process.env.NODE_ENV === "production"
@@ -217,21 +224,21 @@ async function start() {
   const requiredEnvVars = ["DATABASE_URL", "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET"];
   const missing = requiredEnvVars.filter((key) => !process.env[key]);
   if (missing.length > 0) {
-    console.error(`[FATAL] Missing required environment variables: ${missing.join(", ")}`);
+    logger.server.error(`Missing required environment variables: ${missing.join(", ")}`);
     process.exit(1);
   }
 
   // Verify database on startup
   const dbOk = await verifyDatabaseConnection();
   if (!dbOk) {
-    console.error("[FATAL] Cannot connect to database. Server will start but DB operations will fail.");
+    logger.db.error("Cannot connect to database. Server will start but DB operations will fail.");
   } else {
-    console.log("   Database: connected");
+    logger.db.info("Connected");
   }
 
   server = app.listen(PORT, () => {
-    console.log(`🚀 Sirahos API running on http://localhost:${PORT}`);
-    console.log(`   Environment: ${process.env.NODE_ENV ?? "development"}`);
+    logger.server.info(`Sirahos API running on http://localhost:${PORT}`);
+    logger.server.info(`Environment: ${process.env.NODE_ENV ?? "development"}`);
     initScheduler();
   });
 
@@ -248,22 +255,22 @@ function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  console.log(`\n[Shutdown] Received ${signal}. Shutting down gracefully…`);
+  logger.server.info(`Received ${signal}. Shutting down gracefully...`);
 
   // Stop accepting new connections
   stopScheduler();
 
   if (server) {
     server.close(async () => {
-      console.log("[Shutdown] HTTP server closed");
+      logger.server.info("HTTP server closed");
       await disconnectPrisma();
-      console.log("[Shutdown] Database disconnected");
+      logger.server.info("Database disconnected");
       process.exit(0);
     });
 
     // Hard kill after 15 seconds if graceful shutdown hangs
     setTimeout(() => {
-      console.error("[Shutdown] Forced exit after timeout");
+      logger.server.error("Forced exit after timeout");
       process.exit(1);
     }, 15_000);
   } else {

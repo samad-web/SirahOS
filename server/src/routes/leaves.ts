@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { LeaveType, LeaveStatus, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { audit } from "../middleware/audit";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
 
@@ -116,10 +116,12 @@ router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async 
       ? undefined
       : { in: allowed };
 
+  const companyId = getUserCompanyId(req);
   const leaves = await prisma.leave.findMany({
     where: {
       ...(userIdFilter ? { userId: userIdFilter as string } : {}),
       ...(status ? { status } : {}),
+      ...(companyId ? { companyId } : {}),
     },
     include: leaveInclude,
     orderBy: { createdAt: "desc" },
@@ -152,7 +154,7 @@ router.post(
       return;
     }
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const leave = await prisma.leave.create({
       data: {
         userId: req.user!.sub,
@@ -279,8 +281,9 @@ router.get("/balances/all", requireAuth, attachCompany, requireFeature("attendan
   }
 
   const year = new Date().getFullYear();
+  const companyId = getUserCompanyId(req);
   const users = await prisma.user.findMany({
-    where: { status: "ACTIVE" },
+    where: { status: "ACTIVE", ...(companyId ? { companyId } : {}) },
     select: {
       id: true, name: true, initials: true, role: true,
       leaveBalances: { where: { year } },

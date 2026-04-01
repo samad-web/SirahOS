@@ -2,11 +2,12 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { CustomerStatus, PaymentType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { cache, TTL } from "../lib/cache";
-import { attachCompany, requireFeature } from "../middleware/companyScope";
+import { attachCompany, requireFeature, requireCompanyMatch } from "../middleware/companyScope";
+import { PAGINATION } from "../lib/constants";
 
 const router = Router();
 
@@ -43,20 +44,30 @@ router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/customers
 router.get("/", async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
-  const cacheKey = companyId ? `customers:list:${companyId}` : "customers:list";
-  const customers = await cache.getOrSet(cacheKey, TTL.SHORT, () =>
-    prisma.customer.findMany({
-      where: companyId ? { companyId } : {},
-      include: {
-        _count: { select: { invoices: true } },
-        invoices: { select: { items: true, payments: true, status: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 500,
-    })
-  );
-  res.json(customers);
+  const companyId = getUserCompanyId(req);
+  const { page, limit } = req.query as { page?: string; limit?: string };
+  const take = Math.min(Number(limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+  const skip = ((Math.max(Number(page) || 1, 1)) - 1) * take;
+  const where = companyId ? { companyId } : {};
+
+  const cacheKey = companyId ? `customers:list:${companyId}:${skip}:${take}` : `customers:list:${skip}:${take}`;
+  const data = await cache.getOrSet(cacheKey, TTL.SHORT, async () => {
+    const [customers, total] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        include: {
+          _count: { select: { invoices: true } },
+          invoices: { select: { items: true, payments: true, status: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+        skip,
+      }),
+      prisma.customer.count({ where }),
+    ]);
+    return { data: customers, total, page: Math.floor(skip / take) + 1, limit: take };
+  });
+  res.json(data);
 });
 
 // POST /api/customers
@@ -82,7 +93,7 @@ router.post(
         ? Math.ceil(totalAmount / monthlyEmi)
         : null;
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const customer = await prisma.customer.create({
       data: {
         ...rest,
@@ -108,6 +119,11 @@ router.get("/:id", async (req: Request, res: Response) => {
 
   if (!customer) {
     res.status(404).json({ error: "Customer not found" });
+    return;
+  }
+
+  if (!requireCompanyMatch(customer.companyId, req)) {
+    res.status(403).json({ error: "Access denied" });
     return;
   }
 

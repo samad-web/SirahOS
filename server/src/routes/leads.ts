@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { cache, TTL } from "../lib/cache";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
@@ -61,8 +61,8 @@ router.get("/", async (req: Request, res: Response) => {
     });
 
     res.json(data);
-  } catch (err: any) {
-    console.error("Failed to fetch leads:", err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "Failed to fetch leads from ads database" });
   }
 });
@@ -96,8 +96,8 @@ router.get("/stats", async (_req: Request, res: Response) => {
     });
 
     res.json(data);
-  } catch (err: any) {
-    console.error("Failed to fetch lead stats:", err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "Failed to fetch stats" });
   }
 });
@@ -120,8 +120,8 @@ router.get("/filters", async (_req: Request, res: Response) => {
     });
 
     res.json(data);
-  } catch (err: any) {
-    console.error("Failed to fetch filters:", err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "Failed to fetch filters" });
   }
 });
@@ -145,8 +145,8 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     if (!data) { res.status(404).json({ error: "Lead not found" }); return; }
     res.json(data);
-  } catch (err: any) {
-    console.error("Failed to fetch lead:", err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "Failed to fetch lead" });
   }
 });
@@ -154,8 +154,9 @@ router.get("/:id", async (req: Request, res: Response) => {
 // ─── GET /api/leads/:id/notes — List notes for a lead ───────────────────────
 
 router.get("/:id/notes", async (req: Request, res: Response) => {
+  const companyId = getUserCompanyId(req);
   const notes = await prisma.leadNote.findMany({
-    where: { leadId: req.params.id as string },
+    where: { leadId: req.params.id as string, ...(companyId ? { companyId } : {}) },
     include: { author: { select: { id: true, name: true, initials: true } } },
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -174,11 +175,13 @@ router.post("/:id/notes", async (req: Request, res: Response) => {
     return;
   }
 
+  const companyId = getUserCompanyId(req);
   const note = await prisma.leadNote.create({
     data: {
       leadId: req.params.id as string,
       content: parsed.data.content,
       authorId: req.user!.sub,
+      companyId: companyId ?? undefined,
     },
     include: { author: { select: { id: true, name: true, initials: true } } },
   });
@@ -194,6 +197,12 @@ router.patch("/:id/notes/:noteId", async (req: Request, res: Response) => {
     return;
   }
 
+  // Verify ownership
+  const existing = await prisma.leadNote.findUnique({ where: { id: req.params.noteId as string } });
+  if (!existing) { res.status(404).json({ error: "Note not found" }); return; }
+  const companyId = getUserCompanyId(req);
+  if (companyId && existing.companyId !== companyId) { res.status(403).json({ error: "Access denied" }); return; }
+
   const note = await prisma.leadNote.update({
     where: { id: req.params.noteId as string },
     data: { content: parsed.data.content },
@@ -205,6 +214,12 @@ router.patch("/:id/notes/:noteId", async (req: Request, res: Response) => {
 // ─── DELETE /api/leads/:id/notes/:noteId — Delete note ──────────────────────
 
 router.delete("/:id/notes/:noteId", async (req: Request, res: Response) => {
+  // Verify ownership
+  const existing = await prisma.leadNote.findUnique({ where: { id: req.params.noteId as string } });
+  if (!existing) { res.status(404).json({ error: "Note not found" }); return; }
+  const companyId = getUserCompanyId(req);
+  if (companyId && existing.companyId !== companyId) { res.status(403).json({ error: "Access denied" }); return; }
+
   await prisma.leadNote.delete({ where: { id: req.params.noteId as string } });
   res.json({ ok: true });
 });

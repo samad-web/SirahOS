@@ -17,16 +17,16 @@ export const ROLE_LABELS: Record<UserRole, { label: string; cls: string }> = {
 // Route access: which roles are allowed per path
 export const ROUTE_ACCESS: Record<string, UserRole[]> = {
   "/":           ["SUPER_ADMIN", "ADMIN"],
-  "/employees":  ["ADMIN"],
-  "/projects":   ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
-  "/attendance": ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
-  "/invoices":   ["ADMIN"],
-  "/customers":  ["ADMIN"],
-  "/expenses":   ["ADMIN"],
-  "/ledger":     ["ADMIN"],
-  "/notes":      ["ADMIN"],
-  "/leads":      ["ADMIN"],
-  "/settings":   ["ADMIN", "PROJECT_MANAGER"],
+  "/employees":  ["SUPER_ADMIN", "ADMIN"],
+  "/projects":   ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
+  "/attendance": ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
+  "/invoices":   ["SUPER_ADMIN", "ADMIN"],
+  "/customers":  ["SUPER_ADMIN", "ADMIN"],
+  "/expenses":   ["SUPER_ADMIN", "ADMIN"],
+  "/ledger":     ["SUPER_ADMIN", "ADMIN"],
+  "/notes":      ["SUPER_ADMIN", "ADMIN"],
+  "/leads":      ["SUPER_ADMIN", "ADMIN"],
+  "/settings":   ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"],
   "/profile":    ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
   "/companies":  ["SUPER_ADMIN"],
 };
@@ -84,7 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data } = await authApi.login(email, password);
       tokenStorage.set(data.accessToken, data.refreshToken);
+      // Login response now includes company, but also fetch /me for full data
       setUser(data.user);
+      // Fetch full profile (includes company features) in background
+      authApi.me().then(({ data: fullUser }) => setUser(fullUser)).catch(() => {});
       return { ok: true, role: data.user.role };
     } catch (err: unknown) {
       const msg =

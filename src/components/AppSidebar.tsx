@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, FileText, Users, BookOpen,
   FolderKanban, Settings, LogOut, CalendarDays, Receipt, StickyNote, UserPlus, UsersRound,
-  Menu, X,
+  Menu, X, Building2,
 } from "lucide-react";
 import { useAuth, ROUTE_ACCESS, ROLE_LABELS } from "@/contexts/AuthContext";
 
@@ -18,6 +18,7 @@ const allSections: NavSection[] = [
     title: "Overview",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+      { icon: Building2, label: "Companies", path: "/companies" },
     ],
   },
   {
@@ -87,15 +88,28 @@ export function AppSidebar() {
   };
 
   // Filter sections by role and feature flags
-  // SUPER_ADMIN only sees the Dashboard link
+  // SUPER_ADMIN without a company only sees Dashboard
+  // SUPER_ADMIN with a company sees Dashboard + their company's enabled features
+  const isSuperAdminWithCompany = isSuperAdmin && !!user?.companyId;
   const sections = allSections
     .map(s => ({
       ...s,
       items: s.items.filter(item => {
-        // Role check
+        // SUPER_ADMIN without company — Dashboard + Companies
+        if (isSuperAdmin && !isSuperAdminWithCompany) return item.path === "/" || item.path === "/companies";
+        // SUPER_ADMIN with company — Dashboard + Companies + company features (treat as ADMIN for nav)
+        if (isSuperAdminWithCompany) {
+          // Always show dashboard and companies
+          if (item.path === "/" || item.path === "/companies") return true;
+          // Check if ADMIN would see this route
+          if (!(allowed[item.path] ?? []).includes("ADMIN")) return false;
+          // Feature flag check
+          const flag = PATH_FEATURE_MAP[item.path];
+          if (flag && !hasFeature(flag)) return false;
+          return true;
+        }
+        // Regular role check
         if (!(allowed[item.path] ?? []).includes(role)) return false;
-        // SUPER_ADMIN only sees Dashboard
-        if (isSuperAdmin && item.path !== "/") return false;
         // Feature flag check
         const flag = PATH_FEATURE_MAP[item.path];
         if (flag && !hasFeature(flag)) return false;

@@ -22,6 +22,7 @@ import Leads from "./pages/Leads";
 import LeadDetail from "./pages/LeadDetail";
 import Employees from "./pages/Employees";
 import Profile from "./pages/Profile";
+import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
 import Forbidden from "./pages/Forbidden";
 import NotFound from "./pages/NotFound";
@@ -62,7 +63,12 @@ const App = () => (
                   </ProtectedRoute>
                 } />
 
-                {/* Company detail — SUPER_ADMIN only */}
+                {/* Company management — SUPER_ADMIN only */}
+                <Route path="/companies" element={
+                  <ProtectedRoute allowedRoles={["SUPER_ADMIN"]}>
+                    <Companies />
+                  </ProtectedRoute>
+                } />
                 <Route path="/companies/:id" element={
                   <ProtectedRoute allowedRoles={["SUPER_ADMIN"]}>
                     <CompanyDetail />

@@ -2,10 +2,11 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { BugSeverity, BugStatus, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOrPM } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
+import { PAGINATION } from "../lib/constants";
 
 const router = Router();
 
@@ -46,17 +47,19 @@ router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (r
     where.assignedToId = sub;
   }
 
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   if (companyId) where.companyId = companyId;
 
-  const bugs = await prisma.bugReport.findMany({
-    where,
-    include: bugInclude,
-    orderBy: { createdAt: "desc" },
-    take: 500,
-  });
+  const { page, limit } = req.query as { projectId?: string; page?: string; limit?: string };
+  const take = Math.min(Number(limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+  const skip = ((Math.max(Number(page) || 1, 1)) - 1) * take;
 
-  res.json(bugs);
+  const [bugs, total] = await Promise.all([
+    prisma.bugReport.findMany({ where, include: bugInclude, orderBy: { createdAt: "desc" }, take, skip }),
+    prisma.bugReport.count({ where }),
+  ]);
+
+  res.json({ data: bugs, total, page: Math.floor(skip / take) + 1, limit: take });
 });
 
 // POST /api/bugs — Testers and above can report bugs
@@ -81,7 +84,7 @@ router.post(
       return;
     }
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const bug = await prisma.bugReport.create({
       data: {
         ...parsed.data,

@@ -11,7 +11,7 @@ type ViewMode = "manage" | "my";
 export default function Attendance() {
   const { user } = useAuth();
   const role = user?.role ?? "DEVELOPER";
-  const hasManagerView = role === "ADMIN" || role === "PROJECT_MANAGER" || role === "LEAD";
+  const hasManagerView = role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER" || role === "LEAD";
   const [view, setView] = useState<ViewMode>("manage");
 
   return (
@@ -51,7 +51,7 @@ export default function Attendance() {
           {hasManagerView && view === "my" && <SelfAttendanceView />}
           {hasManagerView && view === "manage" && (
             <>
-              {(role === "ADMIN" || role === "PROJECT_MANAGER") && <AdminAttendanceView />}
+              {(role === "SUPER_ADMIN" || role === "ADMIN" || role === "PROJECT_MANAGER") && <AdminAttendanceView />}
               {role === "LEAD" && <LeadAttendanceView />}
             </>
           )}

@@ -58,7 +58,10 @@ const refreshSchema = z.object({
 router.post("/login", async (req: Request, res: Response) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    res.status(400).json({
+      error: "Invalid request",
+      ...(process.env.NODE_ENV !== "production" && { details: parsed.error.flatten() }),
+    });
     return;
   }
 
@@ -73,7 +76,12 @@ router.post("/login", async (req: Request, res: Response) => {
 
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+  // Always run bcrypt.compare even if user not found to prevent timing attacks
+  // that could reveal whether an email is registered
+  const DUMMY_HASH = "$2a$12$mojcFvATavCITEHjzDqSyO5wOIhIXSg6qLz9Wg0Vx4Q3pCTufB0fC";
+  const validPassword = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+
+  if (!user || !validPassword) {
     recordFailedLogin(normalizedEmail);
     res.status(401).json({ error: "Invalid email or password" });
     return;
@@ -93,6 +101,18 @@ router.post("/login", async (req: Request, res: Response) => {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt } });
 
+  // Fetch company with feature flags for the login response
+  const company = user.companyId
+    ? await prisma.company.findUnique({
+        where: { id: user.companyId },
+        select: {
+          id: true, name: true, slug: true,
+          featureBilling: true, featureProjects: true,
+          featureAttendance: true, featureLeads: true,
+        },
+      })
+    : null;
+
   res.json({
     accessToken,
     refreshToken,
@@ -104,6 +124,7 @@ router.post("/login", async (req: Request, res: Response) => {
       status: user.status,
       initials: user.initials,
       companyId: user.companyId,
+      company,
     },
   });
 });

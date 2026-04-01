@@ -67,6 +67,7 @@ export function SuperAdminDashboard() {
     adminName: "",
     adminEmail: "",
     adminPassword: "",
+    grantSuperAdmin: false,
     features: { billing: true, projects: true, attendance: true, leads: true },
   });
 
@@ -82,6 +83,7 @@ export function SuperAdminDashboard() {
   const resetForm = () => {
     setForm({
       companyName: "", companySlug: "", adminName: "", adminEmail: "", adminPassword: "",
+      grantSuperAdmin: false,
       features: { billing: true, projects: true, attendance: true, leads: true },
     });
   };
@@ -124,6 +126,18 @@ export function SuperAdminDashboard() {
               <div className="space-y-2">
                 <Label htmlFor="adminPassword">Admin Password *</Label>
                 <Input id="adminPassword" type="password" value={form.adminPassword} onChange={(e) => setForm((f) => ({ ...f, adminPassword: e.target.value }))} required minLength={8} />
+              </div>
+              <div className="flex items-center justify-between pt-2 pb-1 border-t">
+                <div>
+                  <Label>Grant Super Admin</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Allow this admin to manage all companies on the platform
+                  </p>
+                </div>
+                <Switch
+                  checked={form.grantSuperAdmin}
+                  onCheckedChange={(checked) => setForm((f) => ({ ...f, grantSuperAdmin: checked }))}
+                />
               </div>
               <div className="space-y-3 pt-2">
                 <Label>Feature Modules</Label>
@@ -216,7 +230,9 @@ export function SuperAdminDashboard() {
                         {company.featureLeads && <Badge variant="outline" className="text-xs">Leads</Badge>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm">{company.users?.[0]?.email || "—"}</TableCell>
+                    <TableCell className="text-sm">
+                      {company.users?.[0]?.email || "—"}
+                    </TableCell>
                     <TableCell>{company._count?.users || 0}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(company.createdAt).toLocaleDateString()}

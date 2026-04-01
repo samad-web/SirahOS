@@ -8,6 +8,7 @@ import { DeveloperProjectsView } from "@/components/projects/DeveloperProjectsVi
 import { TesterProjectsView }    from "@/components/projects/TesterProjectsView";
 
 const roleTitle: Record<string, string> = {
+  SUPER_ADMIN:     "All Projects",
   ADMIN:           "All Projects",
   PROJECT_MANAGER: "Project Management",
   LEAD:            "My Project",
@@ -28,7 +29,7 @@ const Projects = () => {
           <div className="mb-5">
             <h1 className="text-lg font-semibold">{roleTitle[role]}</h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {role === "ADMIN"           && "Overview of all projects, team assignments and health."}
+              {(role === "ADMIN" || role === "SUPER_ADMIN") && "Overview of all projects, team assignments and health."}
               {role === "PROJECT_MANAGER" && "Manage your projects, assign leads and track progress."}
               {role === "LEAD"            && "Your project task board, team, and bug reports."}
               {role === "DEVELOPER"       && "Tasks assigned to you across all projects."}
@@ -36,7 +37,7 @@ const Projects = () => {
             </p>
           </div>
 
-          {role === "ADMIN"           && <AdminProjectsView />}
+          {(role === "ADMIN" || role === "SUPER_ADMIN") && <AdminProjectsView />}
           {role === "PROJECT_MANAGER" && <PMProjectsView />}
           {role === "LEAD"            && <LeadProjectsView />}
           {role === "DEVELOPER"       && <DeveloperProjectsView />}

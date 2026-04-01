@@ -211,6 +211,9 @@ model User {
   fines              Fine[]     @relation("FineUser")
   issuedFines        Fine[]     @relation("FineIssuer")
 
+  @@index([email])
+  @@index([companyId])
+  @@index([status])
   @@map("users")
 }
 
@@ -254,6 +257,7 @@ model Project {
 
   @@index([pmId])
   @@index([leadId])
+  @@index([companyId])
   @@map("projects")
 }
 
@@ -294,6 +298,7 @@ model Task {
 
   @@index([projectId])
   @@index([assigneeId])
+  @@index([companyId])
   @@map("tasks")
 }
 
@@ -337,6 +342,7 @@ model BugReport {
 
   @@index([projectId])
   @@index([assignedToId])
+  @@index([companyId])
   @@map("bug_reports")
 }
 
@@ -360,6 +366,8 @@ model Customer {
   tenant   Company? @relation(fields: [companyId], references: [id])
   invoices Invoice[]
 
+  @@index([companyId])
+  @@index([status])
   @@map("customers")
 }
 
@@ -383,6 +391,7 @@ model Invoice {
   payments   Payment[]
 
   @@index([customerId])
+  @@index([companyId])
   @@index([status])
   @@index([createdAt])
   @@map("invoices")
@@ -429,6 +438,7 @@ model LedgerEntry {
   company  Company? @relation(fields: [companyId], references: [id])
 
   @@index([date])
+  @@index([companyId])
   @@map("ledger_entries")
 }
 
@@ -470,6 +480,9 @@ model AuditLog {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
   @@map("audit_logs")
 }
 
@@ -575,6 +588,8 @@ model Expense {
 
   company Company? @relation(fields: [companyId], references: [id])
 
+  @@index([companyId])
+  @@index([date])
   @@map("expenses")
 }
 

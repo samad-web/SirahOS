@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logger } from "../lib/logger";
 
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 
@@ -9,7 +10,7 @@ export function requestTimeout(ms?: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const timer = setTimeout(() => {
       if (!res.headersSent) {
-        console.warn(`[Timeout] Request timed out: ${req.method} ${req.originalUrl} (${timeout}ms)`);
+        logger.server.warn(`Request timed out: ${req.method} ${req.originalUrl} (${timeout}ms)`);
         res.status(503).json({ error: "Request timed out. Please try again." });
       }
     }, timeout);

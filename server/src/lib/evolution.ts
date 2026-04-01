@@ -8,6 +8,7 @@
  */
 
 import axios from "axios";
+import { logger } from "./logger";
 
 const baseUrl      = () => process.env.EVOLUTION_API_URL ?? "";
 const apiKey       = () => process.env.EVOLUTION_API_KEY ?? "";
@@ -30,13 +31,13 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
   const instance = instanceName();
 
   if (!url || !key || !instance) {
-    console.warn("[Evolution] Missing config — skipping WhatsApp message");
+    logger.create("Evolution").warn("Missing config — skipping WhatsApp message");
     return false;
   }
 
   const number = normalisePhone(phone);
   if (number.length < 10) {
-    console.warn(`[Evolution] Invalid phone number: ${phone}`);
+    logger.create("Evolution").warn(`Invalid phone number: ${phone}`);
     return false;
   }
 
@@ -55,11 +56,11 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
         timeout: 15_000,
       }
     );
-    console.log(`[Evolution] Message sent to ${number}`);
+    logger.create("Evolution").info(`Message sent to ${number}`);
     return true;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[Evolution] Failed to send to ${number}: ${msg}`);
+    logger.create("Evolution").error(`Failed to send to ${number}: ${msg}`);
     return false;
   }
 }

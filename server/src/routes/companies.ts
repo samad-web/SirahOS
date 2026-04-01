@@ -4,10 +4,11 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
+import { Role } from "@prisma/client";
 
 const router = Router();
 
-const superAdminOnly = requireRole("SUPER_ADMIN" as any);
+const superAdminOnly = requireRole(Role.SUPER_ADMIN);
 
 const createCompanySchema = z.object({
   companyName: z.string().min(1),
@@ -15,6 +16,7 @@ const createCompanySchema = z.object({
   adminName: z.string().min(2),
   adminEmail: z.string().email(),
   adminPassword: z.string().min(8),
+  grantSuperAdmin: z.boolean().default(false),
   features: z.object({
     billing: z.boolean().default(true),
     projects: z.boolean().default(true),
@@ -41,9 +43,9 @@ router.get("/", async (_req: Request, res: Response) => {
     include: {
       _count: { select: { users: true } },
       users: {
-        where: { role: "ADMIN" },
-        select: { id: true, name: true, email: true },
-        take: 1,
+        where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
+        select: { id: true, name: true, email: true, role: true },
+        take: 3,
       },
     },
     orderBy: { createdAt: "desc" },
@@ -59,9 +61,9 @@ router.get("/:id", async (req: Request, res: Response) => {
     include: {
       _count: { select: { users: true } },
       users: {
-        where: { role: "ADMIN" },
-        select: { id: true, name: true, email: true },
-        take: 1,
+        where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
+        select: { id: true, name: true, email: true, role: true },
+        take: 3,
       },
     },
   });
@@ -73,9 +75,9 @@ router.get("/:id", async (req: Request, res: Response) => {
 
   // Get user counts
   const [totalUsers, activeUsers, inactiveUsers] = await Promise.all([
-    prisma.user.count({ where: { companyId: company.id } as any }),
-    prisma.user.count({ where: { companyId: company.id, status: "ACTIVE" } as any }),
-    prisma.user.count({ where: { companyId: company.id, status: "INACTIVE" } as any }),
+    prisma.user.count({ where: { companyId: company.id } }),
+    prisma.user.count({ where: { companyId: company.id, status: "ACTIVE" } }),
+    prisma.user.count({ where: { companyId: company.id, status: "INACTIVE" } }),
   ]);
 
   res.json({
@@ -92,7 +94,7 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  const { companyName, companySlug, adminName, adminEmail, adminPassword, features } = parsed.data;
+  const { companyName, companySlug, adminName, adminEmail, adminPassword, grantSuperAdmin, features } = parsed.data;
 
   // Check slug uniqueness
   const existingSlug = await prisma.company.findUnique({ where: { slug: companySlug } });
@@ -134,10 +136,10 @@ router.post("/", async (req: Request, res: Response) => {
         name: adminName,
         email: adminEmail.toLowerCase(),
         passwordHash,
-        role: "ADMIN",
+        role: grantSuperAdmin ? "SUPER_ADMIN" : "ADMIN",
         initials,
         companyId: company.id,
-      } as any,
+      },
       select: {
         id: true, name: true, email: true, role: true, status: true, initials: true,
       },
@@ -181,7 +183,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 // GET /api/companies/:id/users — List users in a company
 router.get("/:id/users", async (req: Request, res: Response) => {
   const users = await prisma.user.findMany({
-    where: { companyId: req.params.id as string } as any,
+    where: { companyId: req.params.id as string },
     select: {
       id: true, name: true, email: true, role: true, status: true, initials: true, createdAt: true,
     },
@@ -189,6 +191,32 @@ router.get("/:id/users", async (req: Request, res: Response) => {
   });
 
   res.json(users);
+});
+
+// PATCH /api/companies/:companyId/users/:userId/role — Promote/demote a user to SUPER_ADMIN
+router.patch("/:id/users/:userId/role", async (req: Request, res: Response) => {
+  const { grantSuperAdmin } = z.object({ grantSuperAdmin: z.boolean() }).parse(req.body);
+
+  const targetUser = await prisma.user.findUnique({ where: { id: req.params.userId as string } });
+  if (!targetUser || targetUser.companyId !== req.params.id) {
+    res.status(404).json({ error: "User not found in this company" });
+    return;
+  }
+
+  // Only toggle between ADMIN and SUPER_ADMIN — don't touch other roles
+  if (targetUser.role !== "ADMIN" && targetUser.role !== "SUPER_ADMIN") {
+    res.status(400).json({ error: "Only admin users can be promoted to Super Admin" });
+    return;
+  }
+
+  const newRole = grantSuperAdmin ? "SUPER_ADMIN" : "ADMIN";
+  const user = await prisma.user.update({
+    where: { id: req.params.userId as string },
+    data: { role: newRole },
+    select: { id: true, name: true, email: true, role: true, status: true, initials: true },
+  });
+
+  res.json(user);
 });
 
 export default router;

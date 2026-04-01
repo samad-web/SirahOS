@@ -83,17 +83,8 @@ const Index = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // SUPER_ADMIN sees company management dashboard
-  if (user?.role === "SUPER_ADMIN") {
-    return (
-      <div className="flex h-screen overflow-hidden">
-        <AppSidebar />
-        <main className="flex-1 overflow-y-auto bg-background">
-          <SuperAdminDashboard />
-        </main>
-      </div>
-    );
-  }
+  const isSuperAdminNoCompany = user?.role === "SUPER_ADMIN" && !user.companyId;
+
   const [gst, setGst] = useState<GSTInfo>(loadGST);
   const [editingGST, setEditingGST] = useState(false);
   const [gstSaved, setGstSaved] = useState(false);
@@ -266,6 +257,18 @@ const Index = () => {
     pending: { bg: "bg-amber-50 dark:bg-amber-900/20", border: "border-amber-200 dark:border-amber-800", text: "text-amber-700 dark:text-amber-400", icon: Clock, iconColor: "text-amber-500" },
     info: { bg: "bg-blue-50 dark:bg-blue-900/20", border: "border-blue-200 dark:border-blue-800", text: "text-blue-700 dark:text-blue-400", icon: FileText, iconColor: "text-blue-500" },
   };
+
+  // SUPER_ADMIN without a company — show company management only
+  if (isSuperAdminNoCompany) {
+    return (
+      <div className="flex h-screen overflow-hidden">
+        <AppSidebar />
+        <main className="flex-1 overflow-y-auto bg-background">
+          <SuperAdminDashboard />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background">

@@ -1,10 +1,10 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
-import { attachCompany, requireFeature } from "../middleware/companyScope";
+import { attachCompany, requireFeature, requireCompanyMatch } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -20,7 +20,7 @@ const createFineSchema = z.object({
 router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const userId = req.query.userId as string | undefined;
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
 
   const where: Record<string, unknown> = isAdmin
     ? userId ? { userId } : {}
@@ -41,7 +41,7 @@ router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async 
 
 // GET /api/fines/summary — Admin only: total fines, paid, unpaid per user
 router.get("/summary", requireAuth, attachCompany, requireFeature("attendance"), adminOnly, async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const fines = await prisma.fine.findMany({
     where: companyId ? { companyId } : {},
     select: {
@@ -124,7 +124,7 @@ router.post(
       return;
     }
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const fine = await prisma.fine.create({
       data: {
         userId,
@@ -154,6 +154,10 @@ router.patch(
   async (req: Request, res: Response) => {
     const { paid } = z.object({ paid: z.boolean() }).parse(req.body);
 
+    const existing = await prisma.fine.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Fine not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     const fine = await prisma.fine.update({
       where: { id: req.params.id as string },
       data: { paid },
@@ -176,6 +180,10 @@ router.delete(
   adminOnly,
   audit({ action: "DELETE_FINE", resourceType: "Fine" }),
   async (req: Request, res: Response) => {
+    const existing = await prisma.fine.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Fine not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     await prisma.fine.delete({ where: { id: req.params.id as string } });
     res.json({ success: true });
   }

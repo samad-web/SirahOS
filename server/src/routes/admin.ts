@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { runAllRefreshTasks } from "../lib/monthly-refresh";
 import { prisma } from "../lib/prisma";
 import { attachCompany } from "../middleware/companyScope";
+import { PAGINATION } from "../lib/constants";
 
 const router = Router();
 
@@ -34,6 +35,49 @@ router.post(
   async (_req: Request, res: Response) => {
     const results = await runAllRefreshTasks();
     res.json({ message: "Monthly refresh completed", results });
+  }
+);
+
+// ─── Audit Log Retrieval ───────────────────────────────────────────────────
+
+// GET /api/admin/audit-logs — retrieve audit logs with pagination and filters
+router.get("/audit-logs", async (req: Request, res: Response) => {
+  const { action, resourceType, userId, page, limit } = req.query as {
+    action?: string; resourceType?: string; userId?: string; page?: string; limit?: string;
+  };
+
+  const where: Record<string, unknown> = {};
+  if (action) where.action = action;
+  if (resourceType) where.resourceType = resourceType;
+  if (userId) where.userId = userId;
+
+  const take = Math.min(Number(limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+  const skip = ((Math.max(Number(page) || 1, 1)) - 1) * take;
+
+  const [logs, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where,
+      include: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+    }),
+    prisma.auditLog.count({ where }),
+  ]);
+
+  res.json({ data: logs, total, page: Math.floor(skip / take) + 1, limit: take });
+});
+
+// DELETE /api/admin/audit-logs/cleanup — delete audit logs older than 90 days
+router.delete(
+  "/audit-logs/cleanup",
+  destructiveLimiter,
+  requirePurgeConfirmation,
+  audit({ action: "CLEANUP_AUDIT_LOGS", resourceType: "System" }),
+  async (_req: Request, res: Response) => {
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const result = await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    res.json({ message: `Deleted ${result.count} audit logs older than 90 days` });
   }
 );
 

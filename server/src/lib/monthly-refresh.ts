@@ -7,6 +7,9 @@
 
 import { prisma } from "./prisma";
 import { AttendanceStatus, LeaveType } from "@prisma/client";
+import { logger } from "./logger";
+
+const log = logger.create("Refresh");
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -86,7 +89,7 @@ export async function archiveAttendanceSummaries(): Promise<{ processed: number 
     processed++;
   }
 
-  console.log(`[Refresh] Attendance summaries archived for ${prevYear}-${String(prevMonth).padStart(2, "0")}: ${processed} users`);
+  log.info(` Attendance summaries archived for ${prevYear}-${String(prevMonth).padStart(2, "0")}: ${processed} users`);
   return { processed };
 }
 
@@ -99,7 +102,7 @@ export async function archiveAttendanceSummaries(): Promise<{ processed: number 
 export async function rolloverLeaveBalances(): Promise<{ created: number }> {
   const now = new Date();
   if (now.getMonth() !== 0) {
-    console.log("[Refresh] Leave rollover skipped — not January");
+    log.info("Leave rollover skipped — not January");
     return { created: 0 };
   }
 
@@ -132,7 +135,7 @@ export async function rolloverLeaveBalances(): Promise<{ created: number }> {
     }
   }
 
-  console.log(`[Refresh] Leave balances rolled over to ${newYear}: ${created} records`);
+  log.info(` Leave balances rolled over to ${newYear}: ${created} records`);
   return { created };
 }
 
@@ -167,7 +170,7 @@ export async function ensureCurrentYearBalances(): Promise<{ created: number }> 
     }
   }
 
-  if (created > 0) console.log(`[Refresh] Created ${created} missing leave balances for ${year}`);
+  if (created > 0) log.info(`Created ${created} missing leave balances for ${year}`);
   return { created };
 }
 
@@ -177,7 +180,7 @@ export async function cleanupExpiredTokens(): Promise<{ deleted: number }> {
   const { count } = await prisma.refreshToken.deleteMany({
     where: { expiresAt: { lt: new Date() } },
   });
-  console.log(`[Refresh] Cleaned up ${count} expired refresh tokens`);
+  log.info(` Cleaned up ${count} expired refresh tokens`);
   return { deleted: count };
 }
 
@@ -190,7 +193,7 @@ export async function pruneOldAuditLogs(): Promise<{ deleted: number }> {
   const { count } = await prisma.auditLog.deleteMany({
     where: { createdAt: { lt: cutoff } },
   });
-  console.log(`[Refresh] Pruned ${count} audit logs older than 6 months`);
+  log.info(` Pruned ${count} audit logs older than 6 months`);
   return { deleted: count };
 }
 
@@ -212,7 +215,7 @@ export async function runAllRefreshTasks() {
       results[task.name] = await task.fn();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[Refresh] ${task.name} FAILED: ${msg}`);
+      log.error(`${task.name} FAILED: ${msg}`);
       results[task.name] = { error: msg };
     }
   }

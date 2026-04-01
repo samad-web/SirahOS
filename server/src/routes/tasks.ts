@@ -2,11 +2,12 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { TaskType, TaskStatus, TaskPriority } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOrPMOrLead } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
 import { canAssign, getAssignableUsers } from "../middleware/validateAssignment";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
+import { PAGINATION } from "../lib/constants";
 
 const router = Router();
 
@@ -64,17 +65,19 @@ router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (r
     where.assigneeId = sub;
   }
 
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   if (companyId) where.companyId = companyId;
 
-  const tasks = await prisma.task.findMany({
-    where,
-    include: taskInclude,
-    orderBy: { createdAt: "desc" },
-    take: 500,
-  });
+  const { page, limit } = req.query as { projectId?: string; page?: string; limit?: string };
+  const take = Math.min(Number(limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+  const skip = ((Math.max(Number(page) || 1, 1)) - 1) * take;
 
-  res.json(tasks);
+  const [tasks, total] = await Promise.all([
+    prisma.task.findMany({ where, include: taskInclude, orderBy: { createdAt: "desc" }, take, skip }),
+    prisma.task.count({ where }),
+  ]);
+
+  res.json({ data: tasks, total, page: Math.floor(skip / take) + 1, limit: take });
 });
 
 // ─── POST /api/tasks — Lead or above with hierarchical permission check ────
@@ -106,7 +109,7 @@ router.post(
       }
     }
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const task = await prisma.task.create({
       data: {
         ...parsed.data,

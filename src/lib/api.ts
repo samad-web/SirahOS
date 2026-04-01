@@ -155,7 +155,7 @@ export const projectsApi = {
 };
 
 export const tasksApi = {
-  list: (projectId?: string) => api.get<Task[]>("/tasks", { params: projectId ? { projectId } : {} }),
+  list: (projectId?: string) => unwrapPaginated<Task>(api.get("/tasks", { params: projectId ? { projectId } : {} })),
   create: (data: CreateTaskPayload) => api.post<Task>("/tasks", data),
   update: (id: string, data: Partial<Task> & { reassignNote?: string }) => api.patch<Task>(`/tasks/${id}`, data),
   delete: (id: string) => api.delete(`/tasks/${id}`),
@@ -165,15 +165,25 @@ export const tasksApi = {
 };
 
 export const bugsApi = {
-  list: (projectId?: string) => api.get<BugReport[]>("/bugs", { params: projectId ? { projectId } : {} }),
+  list: (projectId?: string) => unwrapPaginated<BugReport>(api.get("/bugs", { params: projectId ? { projectId } : {} })),
   create: (data: CreateBugPayload) => api.post<BugReport>("/bugs", data),
   assign: (id: string, assignedToId: string) => api.patch<BugReport>(`/bugs/${id}/assign`, { assignedToId }),
   updateStatus: (id: string, status: string, resolution?: string) =>
     api.patch<BugReport>(`/bugs/${id}/status`, { status, resolution }),
 };
 
+// ─── Paginated response unwrapper ─────────────────────────────────────────────
+// Backend list endpoints return { data: T[], total, page, limit }.
+// Unwrap so callers get { data: T[] } (Axios shape) with the array directly.
+
+interface PaginatedResponse<T> { data: T[]; total: number; page: number; limit: number; }
+
+function unwrapPaginated<T>(promise: Promise<{ data: PaginatedResponse<T> }>) {
+  return promise.then(res => ({ ...res, data: res.data.data }));
+}
+
 export const invoicesApi = {
-  list: (status?: string) => api.get<Invoice[]>("/invoices", { params: status ? { status } : {} }),
+  list: (status?: string) => unwrapPaginated<Invoice>(api.get("/invoices", { params: status ? { status } : {} })),
   get: (id: string) => api.get<Invoice>(`/invoices/${id}`),
   create: (data: unknown) => api.post<Invoice>("/invoices", data),
   update: (id: string, data: unknown) => api.patch<Invoice>(`/invoices/${id}`, data),
@@ -181,20 +191,20 @@ export const invoicesApi = {
 };
 
 export const customersApi = {
-  list: () => api.get<Customer[]>("/customers"),
+  list: () => unwrapPaginated<Customer>(api.get("/customers")),
   get: (id: string) => api.get<Customer>(`/customers/${id}`),
   create: (data: unknown) => api.post<Customer>("/customers", data),
   update: (id: string, data: unknown) => api.patch<Customer>(`/customers/${id}`, data),
 };
 
 export const ledgerApi = {
-  list: (params?: { category?: string; status?: string }) => api.get<LedgerEntry[]>("/ledger", { params }),
+  list: (params?: { category?: string; status?: string }) => unwrapPaginated<LedgerEntry>(api.get("/ledger", { params })),
   create: (data: unknown) => api.post<LedgerEntry>("/ledger", data),
   delete: (id: string) => api.delete(`/ledger/${id}`),
 };
 
 export const expensesApi = {
-  list: (params?: { category?: string }) => api.get<Expense[]>("/expenses", { params }),
+  list: (params?: { category?: string }) => unwrapPaginated<Expense>(api.get("/expenses", { params })),
   create: (data: unknown) => api.post<Expense>("/expenses", data),
   update: (id: string, data: unknown) => api.patch<Expense>(`/expenses/${id}`, data),
   delete: (id: string) => api.delete(`/expenses/${id}`),
@@ -680,7 +690,7 @@ export interface Company {
   createdAt: string;
   updatedAt: string;
   _count?: { users: number };
-  users?: Pick<AppUser, "id" | "name" | "email">[];
+  users?: Pick<AppUser, "id" | "name" | "email" | "role">[];
   userStats?: { total: number; active: number; inactive: number };
 }
 
@@ -690,6 +700,7 @@ export interface CreateCompanyPayload {
   adminName: string;
   adminEmail: string;
   adminPassword: string;
+  grantSuperAdmin?: boolean;
   features: {
     billing: boolean;
     projects: boolean;
@@ -706,4 +717,6 @@ export const superAdminApi = {
   suspendCompany: (id: string) => api.patch<Company>(`/companies/${id}`, { status: "SUSPENDED" }),
   reactivateCompany: (id: string) => api.patch<Company>(`/companies/${id}`, { status: "ACTIVE" }),
   getCompanyUsers: (id: string) => api.get<AppUser[]>(`/companies/${id}/users`),
+  toggleSuperAdmin: (companyId: string, userId: string, grantSuperAdmin: boolean) =>
+    api.patch<AppUser>(`/companies/${companyId}/users/${userId}/role`, { grantSuperAdmin }),
 };

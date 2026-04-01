@@ -14,6 +14,9 @@
 
 import cron, { ScheduledTask } from "node-cron";
 import { prisma } from "./prisma";
+import { logger } from "./logger";
+
+const log = logger.scheduler;
 import { sendWhatsAppMessage } from "./evolution";
 import {
   archiveAttendanceSummaries,
@@ -53,19 +56,19 @@ export async function sendEmiReminders(): Promise<{ sent: number; failed: number
     if (ok) sent++; else failed++;
   }
 
-  console.log(`[Scheduler] EMI reminders — sent: ${sent}, failed: ${failed}, skipped: ${skipped}`);
+  log.info(`EMI reminders — sent: ${sent}, failed: ${failed}, skipped: ${skipped}`);
   return { sent, failed, skipped };
 }
 
 /** Wrap a job so failures are logged but don't crash the process */
 function safeJob(name: string, fn: () => Promise<unknown>) {
   return async () => {
-    console.log(`[Scheduler] Starting: ${name}`);
+    log.info(`Starting: ${name}`);
     try {
       await fn();
-      console.log(`[Scheduler] Completed: ${name}`);
+      log.info(`Completed: ${name}`);
     } catch (err) {
-      console.error(`[Scheduler] FAILED: ${name}`, err instanceof Error ? err.message : err);
+      log.error(`FAILED: ${name}`, err instanceof Error ? err.message : err);
     }
   };
 }
@@ -81,11 +84,11 @@ export function initScheduler() {
     cron.schedule("0 3 1 * *",  safeJob("Audit log prune",        pruneOldAuditLogs),           TZ),
   );
 
-  console.log("   Scheduler: 6 jobs registered (IST timezone)");
+  log.info("6 jobs registered (IST timezone)");
 }
 
 /** Stop all cron tasks (used during graceful shutdown) */
 export function stopScheduler() {
   tasks.forEach((t) => t.stop());
-  console.log("[Scheduler] All jobs stopped");
+  log.info("All jobs stopped");
 }

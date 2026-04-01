@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from "@prisma/client";
+import { logger } from "./logger";
 
 // ─── Retry logic for transient database errors ──────────────────────────────
 
@@ -21,7 +22,7 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
       if (!code || !TRANSIENT_CODES.has(code) || attempt === MAX_RETRIES) throw err;
 
       const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-      console.warn(`[Prisma] Transient error ${code}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      logger.db.warn(`Transient error ${code}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -56,7 +57,7 @@ export async function verifyDatabaseConnection(): Promise<boolean> {
     await basePrisma.$queryRaw`SELECT 1`;
     return true;
   } catch (err) {
-    console.error("[Prisma] Database connection failed:", err instanceof Error ? err.message : err);
+    logger.db.error("Database connection failed", err instanceof Error ? err.message : err);
     return false;
   }
 }

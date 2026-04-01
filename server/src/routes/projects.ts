@@ -2,10 +2,10 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { ProjectStatus, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly, adminOrPM, adminOrPMOrLead } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
-import { attachCompany, requireFeature } from "../middleware/companyScope";
+import { attachCompany, requireFeature, requireCompanyMatch } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -60,7 +60,7 @@ async function getVisibleProjects(userId: string, role: Role, companyId?: string
 
 // GET /api/projects
 router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const projects = await getVisibleProjects(req.user!.sub, req.user!.role, companyId);
   res.json(projects);
 });
@@ -80,7 +80,7 @@ router.post(
       return;
     }
 
-    const companyId = (req.user as any).companyId as string | undefined;
+    const companyId = getUserCompanyId(req);
     const project = await prisma.project.create({
       data: {
         ...parsed.data,
@@ -110,6 +110,11 @@ router.get("/:id", requireAuth, attachCompany, requireFeature("projects"), async
     return;
   }
 
+  if (!requireCompanyMatch(project.companyId, req)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
   res.json(project);
 });
 
@@ -127,6 +132,10 @@ router.patch(
       res.status(400).json({ error: "pmId is required" });
       return;
     }
+
+    const existing = await prisma.project.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Project not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
 
     const project = await prisma.project.update({
       where: { id: req.params.id as string },
@@ -152,6 +161,10 @@ router.patch(
       return;
     }
 
+    const existing = await prisma.project.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Project not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     const project = await prisma.project.update({
       where: { id: req.params.id as string },
       data: { leadId: parsed.data.leadId },
@@ -176,6 +189,10 @@ router.post(
       return;
     }
 
+    const existing = await prisma.project.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Project not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     await prisma.projectMember.upsert({
       where: { projectId_userId: { projectId: req.params.id as string, userId: parsed.data.userId } },
       create: { projectId: req.params.id as string, userId: parsed.data.userId },
@@ -195,6 +212,10 @@ router.delete(
   adminOrPMOrLead,
   audit({ action: "REMOVE_MEMBER", resourceType: "Project" }),
   async (req: Request, res: Response) => {
+    const existing = await prisma.project.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Project not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     await prisma.projectMember.delete({
       where: { projectId_userId: { projectId: req.params.id as string, userId: req.params.userId as string } },
     });
@@ -216,6 +237,10 @@ router.patch(
       res.status(400).json({ error: "Invalid status" });
       return;
     }
+    const existing = await prisma.project.findUnique({ where: { id: req.params.id as string } });
+    if (!existing) { res.status(404).json({ error: "Project not found" }); return; }
+    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+
     const project = await prisma.project.update({
       where: { id: req.params.id as string },
       data: { status: parsed.data.status },

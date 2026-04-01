@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, getUserCompanyId } from "../middleware/auth";
 import { adminOnly } from "../middleware/rbac";
 import { cache, TTL } from "../lib/cache";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
@@ -12,7 +12,7 @@ router.use(requireAuth, attachCompany, requireFeature("billing"), adminOnly);
 
 // GET /api/reports/summary — Dashboard KPIs
 router.get("/summary", async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const cacheKey = companyId ? `reports:summary:${companyId}` : "reports:summary";
   const companyFilter = companyId ? { companyId } : {};
   const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
@@ -23,20 +23,24 @@ router.get("/summary", async (req: Request, res: Response) => {
       prisma.ledgerEntry.findMany({ where: companyFilter }),
     ]);
 
-    const totalInvoiced = invoices.reduce((sum, inv) => {
-      const subtotal = inv.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-      return sum + subtotal * (1 + inv.gstRate / 100);
+    // Use cents for all intermediate math to avoid floating-point rounding errors
+    const totalInvoicedCents = invoices.reduce((sum, inv) => {
+      const subtotalCents = inv.items.reduce((s, i) => s + Math.round(i.quantity * i.unitPrice * 100), 0);
+      return sum + subtotalCents + Math.round(subtotalCents * inv.gstRate / 100);
     }, 0);
+    const totalInvoiced = totalInvoicedCents / 100;
 
-    const totalCollected = invoices.reduce((sum, inv) => {
-      return sum + inv.payments.reduce((s, p) => s + p.amount, 0);
+    const totalCollectedCents = invoices.reduce((sum, inv) => {
+      return sum + inv.payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
     }, 0);
+    const totalCollected = totalCollectedCents / 100;
 
-    const totalExpenses = ledger
+    const totalExpensesCents = ledger
       .filter((e) => e.debit > 0)
-      .reduce((sum, e) => sum + e.debit, 0);
+      .reduce((sum, e) => sum + Math.round(e.debit * 100), 0);
+    const totalExpenses = totalExpensesCents / 100;
 
-    const netProfit = totalCollected - totalExpenses;
+    const netProfit = (totalCollectedCents - totalExpensesCents) / 100;
 
     return {
       totalRevenue: totalCollected,
@@ -56,7 +60,7 @@ router.get("/summary", async (req: Request, res: Response) => {
 
 // GET /api/reports/revenue — Monthly revenue breakdown (last 12 months)
 router.get("/revenue", async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const cacheKey = companyId ? `reports:revenue:${companyId}` : "reports:revenue";
   const companyFilter = companyId ? { companyId } : {};
   const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
@@ -96,28 +100,26 @@ router.get("/revenue", async (req: Request, res: Response) => {
 
 // GET /api/reports/gst — GST collection breakdown
 router.get("/gst", async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const cacheKey = companyId ? `reports:gst:${companyId}` : "reports:gst";
   const companyFilter = companyId ? { companyId } : {};
   const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {
     const invoices = await prisma.invoice.findMany({ where: companyFilter, include: { items: true } });
-    return invoices.reduce(
-      (acc, inv) => {
-        const subtotal = inv.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-        const gst = subtotal * (inv.gstRate / 100);
-        const key = `${inv.gstRate}%`;
-        acc[key] = (acc[key] ?? 0) + gst;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
+    const result: Record<string, number> = {};
+    for (const inv of invoices) {
+      const subtotalCents = inv.items.reduce((s, i) => s + Math.round(i.quantity * i.unitPrice * 100), 0);
+      const gstCents = Math.round(subtotalCents * inv.gstRate / 100);
+      const key = `${inv.gstRate}%`;
+      result[key] = (result[key] ?? 0) + gstCents / 100;
+    }
+    return result;
   });
   res.json(data);
 });
 
 // GET /api/reports/top-clients
 router.get("/top-clients", async (req: Request, res: Response) => {
-  const companyId = (req.user as any).companyId as string | undefined;
+  const companyId = getUserCompanyId(req);
   const cacheKey = companyId ? `reports:top-clients:${companyId}` : "reports:top-clients";
   const companyFilter = companyId ? { companyId } : {};
   const data = await cache.getOrSet(cacheKey, TTL.MEDIUM, async () => {

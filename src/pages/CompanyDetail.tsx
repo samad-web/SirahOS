@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Users, UserCheck, UserX } from "lucide-react";
+import { ArrowLeft, Building2, Users, UserCheck, UserX, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +52,20 @@ export default function CompanyDetail() {
     updateMutation.mutate({ [key]: value } as any);
   };
 
+  const toggleSuperAdminMutation = useMutation({
+    mutationFn: ({ userId, grant }: { userId: string; grant: boolean }) =>
+      superAdminApi.toggleSuperAdmin(id!, userId, grant),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["company", id] });
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      toast.success("User role updated");
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Failed to update role";
+      toast.error(msg);
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="flex h-screen">
@@ -74,7 +88,7 @@ export default function CompanyDetail() {
     );
   }
 
-  const admin = company.users?.[0];
+  const admins = company.users ?? [];
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -124,24 +138,41 @@ export default function CompanyDetail() {
           </Card>
 
           {/* Admin Info */}
-          {admin && (
+          {admins.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Building2 className="h-5 w-5" /> Company Admin
+                  <Building2 className="h-5 w-5" /> Company Admins
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Name</p>
-                    <p className="font-medium">{admin.name}</p>
+              <CardContent className="space-y-4">
+                {admins.map((admin) => (
+                  <div key={admin.id} className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0">
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm flex-1">
+                      <div>
+                        <p className="text-muted-foreground text-xs">Name</p>
+                        <p className="font-medium">{admin.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Email</p>
+                        <p className="font-medium">{admin.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 ml-4">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className={`h-4 w-4 ${admin.role === "SUPER_ADMIN" ? "text-red-500" : "text-muted-foreground"}`} />
+                        <Label className="text-sm whitespace-nowrap">Super Admin</Label>
+                      </div>
+                      <Switch
+                        checked={admin.role === "SUPER_ADMIN"}
+                        onCheckedChange={(checked) =>
+                          toggleSuperAdminMutation.mutate({ userId: admin.id, grant: checked })
+                        }
+                        disabled={toggleSuperAdminMutation.isPending}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-muted-foreground">Email</p>
-                    <p className="font-medium">{admin.email}</p>
-                  </div>
-                </div>
+                ))}
               </CardContent>
             </Card>
           )}
