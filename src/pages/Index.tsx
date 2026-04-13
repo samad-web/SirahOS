@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -14,8 +14,8 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { SuperAdminDashboard } from "@/components/super-admin/SuperAdminDashboard";
-import { reportsApi, customersApi, expensesApi, invoicesApi, finesApi } from "@/lib/api";
-import type { ReportSummary, RevenueMonth, TopClient, Invoice, FineSummary } from "@/lib/api";
+import { reportsApi, customersApi, expensesApi, invoicesApi, finesApi, tasksApi } from "@/lib/api";
+import type { Invoice, FineSummary } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,38 +117,75 @@ const Index = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Reports data ──
-  const [reportsLoading, setReportsLoading] = useState(true);
-  const [summary, setSummary] = useState<ReportSummary | null>(null);
-  const [revenueData, setRevenueData] = useState<RevenueMonth[]>([]);
-  const [topClients, setTopClients] = useState<TopClient[]>([]);
-  const [gstData, setGstData] = useState<GstRow[]>([]);
-  const [expenseBreakdown, setExpenseBreakdown] = useState<ExpenseSlice[]>([]);
-
+  // ── Reports data (all via React Query — cached instantly on revisit) ──
+  const { data: summary, isLoading: loadingSummary } = useQuery({
+    queryKey: ["reports", "summary"],
+    queryFn: () => reportsApi.summary().then(r => r.data),
+  });
+  const { data: revenueData = [], isLoading: loadingRevenue } = useQuery({
+    queryKey: ["reports", "revenue"],
+    queryFn: () => reportsApi.revenue().then(r => r.data),
+  });
+  const { data: topClients = [] } = useQuery({
+    queryKey: ["reports", "top-clients"],
+    queryFn: () => reportsApi.topClients().then(r => r.data),
+  });
+  const { data: gstRaw = {} } = useQuery({
+    queryKey: ["reports", "gst"],
+    queryFn: () => reportsApi.gst().then(r => r.data),
+  });
+  const { data: expensesRaw = [] } = useQuery({
+    queryKey: ["expenses"],
+    queryFn: () => expensesApi.list().then(r => r.data),
+  });
   const { data: customerCount = 0 } = useQuery({
     queryKey: ["customers", "count"],
     queryFn: () => customersApi.list().then(r => (r.data as unknown[]).length),
-    staleTime: 5 * 60_000,
   });
-
-  // Fines summary
   const { data: fineSummary } = useQuery<FineSummary>({
     queryKey: ["fines", "summary"],
     queryFn: () => finesApi.summary().then(r => r.data),
-    staleTime: 60_000,
   });
-
-  // Fetch all invoices for alerts
   const { data: allInvoices = [] } = useQuery({
-    queryKey: ["invoices", "all"],
+    queryKey: ["invoices"],
     queryFn: () => invoicesApi.list().then(r => r.data as Invoice[]),
-    staleTime: 60_000,
   });
 
-  const overdueInvoices = allInvoices.filter(i => i.status === "OVERDUE");
-  const pendingInvoices = allInvoices.filter(i => i.status === "PENDING");
-  const overdueCount = overdueInvoices.length;
-  const pendingCount = pendingInvoices.length;
+  // Unassigned tasks across all projects — powers the dashboard alert card
+  const { data: unassignedTasks = [] } = useQuery({
+    queryKey: ["tasks", "cross-project", { assigneeId: "unassigned", limit: 200 }],
+    queryFn: () => tasksApi.listAll({ assigneeId: "unassigned", limit: 200 }).then(r => r.data),
+  });
+  const unassignedCount = unassignedTasks.length;
+
+  const reportsLoading = loadingSummary || loadingRevenue;
+
+  // Derived data — memoized so charts don't re-render unnecessarily
+  const gstData = useMemo<GstRow[]>(() =>
+    Object.entries(gstRaw).map(([month, collected]) => ({
+      month, collected: collected as number, paid: collected as number,
+    })), [gstRaw]);
+
+  const expenseBreakdown = useMemo<ExpenseSlice[]>(() => {
+    const categoryTotals: Record<string, number> = {};
+    for (const exp of expensesRaw) {
+      const cat = exp.category ?? "OTHER";
+      categoryTotals[cat] = (categoryTotals[cat] ?? 0) + exp.amount;
+    }
+    return Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value], i) => ({
+        name: name.charAt(0) + name.slice(1).toLowerCase(),
+        value,
+        color: EXPENSE_COLORS[i % EXPENSE_COLORS.length],
+      }));
+  }, [expensesRaw]);
+
+  const { overdueInvoices, overdueCount, pendingCount } = useMemo(() => {
+    const overdue = allInvoices.filter(i => i.status === "OVERDUE");
+    const pending = allInvoices.filter(i => i.status === "PENDING");
+    return { overdueInvoices: overdue, overdueCount: overdue.length, pendingCount: pending.length };
+  }, [allInvoices]);
 
   // Build alerts
   const alerts: AlertItem[] = useMemo(() => {
@@ -179,6 +216,16 @@ const Index = () => {
         actionLabel: "View",
       });
     }
+    if (unassignedCount > 0) {
+      items.push({
+        id: "unassigned-tasks",
+        type: "pending",
+        title: `${unassignedCount} unassigned task${unassignedCount > 1 ? "s" : ""}`,
+        description: "Tasks across projects with no owner — assign them before they slip",
+        action: () => navigate("/tasks?assigneeId=unassigned"),
+        actionLabel: "Assign now",
+      });
+    }
     if (customerCount > 0 && allInvoices.length === 0) {
       items.push({
         id: "no-invoices",
@@ -190,59 +237,14 @@ const Index = () => {
       });
     }
     return items;
-  }, [overdueCount, pendingCount, customerCount, allInvoices.length]);
+  }, [overdueCount, pendingCount, unassignedCount, customerCount, allInvoices.length, navigate]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchAll() {
-      setReportsLoading(true);
-      try {
-        const [summaryRes, revenueRes, clientsRes, gstRes, expensesRes] = await Promise.all([
-          reportsApi.summary(),
-          reportsApi.revenue(),
-          reportsApi.topClients(),
-          reportsApi.gst(),
-          expensesApi.list(),
-        ]);
-        if (cancelled) return;
-
-        setSummary(summaryRes.data);
-        setRevenueData(revenueRes.data);
-        setTopClients(clientsRes.data);
-
-        const gstRaw = gstRes.data;
-        setGstData(Object.entries(gstRaw).map(([month, collected]) => ({
-          month, collected: collected as number, paid: collected as number,
-        })));
-
-        const categoryTotals: Record<string, number> = {};
-        for (const exp of expensesRes.data) {
-          const cat = exp.category ?? "OTHER";
-          categoryTotals[cat] = (categoryTotals[cat] ?? 0) + exp.amount;
-        }
-        setExpenseBreakdown(
-          Object.entries(categoryTotals)
-            .sort((a, b) => b[1] - a[1])
-            .map(([name, value], i) => ({
-              name: name.charAt(0) + name.slice(1).toLowerCase(),
-              value,
-              color: EXPENSE_COLORS[i % EXPENSE_COLORS.length],
-            }))
-        );
-      } catch { /* ignore */ }
-      finally { if (!cancelled) setReportsLoading(false); }
-    }
-    fetchAll();
-    return () => { cancelled = true; };
-  }, []);
-
-  // Filter revenue data by selected month range (show up to selected month)
-  const filteredRevenue = revenueData; // API returns monthly — we show all
+  const filteredRevenue = revenueData;
 
   const totalRevenue = summary?.totalRevenue ?? 0;
   const netProfit = summary?.netProfit ?? 0;
   const margin = summary?.profitMargin ?? "0.0";
-  const totalGST = gstData.reduce((s, g) => s + g.collected, 0);
+  const totalGST = useMemo(() => gstData.reduce((s, g) => s + g.collected, 0), [gstData]);
   const maxRevenue = useMemo(() => (topClients.length ? Math.max(...topClients.map(c => c.revenue)) : 1), [topClients]);
 
   const saveGST = () => {
@@ -360,8 +362,8 @@ const Index = () => {
             </div>
           </motion.div>
 
-          {/* Alert banners */}
-          {alerts.filter(a => a.type === "overdue").map(alert => {
+          {/* Alert banners — overdue invoices + unassigned tasks are loud enough to warrant a banner */}
+          {alerts.filter(a => a.type === "overdue" || a.id === "unassigned-tasks").map(alert => {
             const cfg = alertTypeCfg[alert.type];
             const Icon = cfg.icon;
             return (
@@ -478,7 +480,7 @@ const Index = () => {
                   {topClients.length > 0 ? (
                     <div className="space-y-3">
                       {topClients.map((c, i) => (
-                        <motion.div key={c.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }} className="space-y-1.5">
+                        <motion.div key={c.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }} className="space-y-1.5">
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
                               <span className="text-[11px] font-mono font-bold text-muted-foreground w-4">#{i + 1}</span>
@@ -488,7 +490,7 @@ const Index = () => {
                             <span className="font-mono text-sm font-semibold">{fmt(c.revenue)}</span>
                           </div>
                           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                            <motion.div initial={{ width: 0 }} animate={{ width: `${(c.revenue / maxRevenue) * 100}%` }} transition={{ delay: i * 0.07 + 0.2, duration: 0.6 }}
+                            <motion.div initial={{ width: 0 }} animate={{ width: `${(c.revenue / maxRevenue) * 100}%` }} transition={{ duration: 0.6 }}
                               className="h-full gradient-primary rounded-full" />
                           </div>
                         </motion.div>

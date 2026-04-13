@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import {
   Plus, Receipt, TrendingDown, Wallet, CalendarDays,
-  X, Trash2,
+  X, Trash2, Download,
 } from "lucide-react";
 import { expensesApi, Expense, ExpenseCategory } from "@/lib/api";
 import { useDebounce } from "@/hooks/useDebounce";
+import { toCSV, downloadCSV, datedFilename, type CSVColumn } from "@/lib/csv";
 import { toast } from "sonner";
 
 const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -32,68 +34,99 @@ const emptyForm = () => ({
 });
 
 export default function Expenses() {
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState("");
   const [showAdd, setShowAdd]   = useState(false);
   const [form, setForm]         = useState(emptyForm());
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError]       = useState("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
-  const fetch = useCallback(async () => {
-    try { const { data } = await expensesApi.list(); setExpenses(data); }
-    catch { /* ignore */ } finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { fetch(); }, [fetch]);
-
-  const debouncedSearch = useDebounce(search, 300);
-  const filtered = expenses.filter(e => {
-    const q = debouncedSearch.toLowerCase();
-    return !q || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q);
+  const qc = useQueryClient();
+  const { data: expenses = [], isLoading: loading } = useQuery({
+    queryKey: ["expenses"],
+    queryFn: () => expensesApi.list().then(r => r.data),
   });
 
-  const totalAll     = expenses.reduce((s, e) => s + e.amount, 0);
-  const thisMonth    = expenses.filter(e => {
-    const d = new Date(e.date); const n = new Date();
-    return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
-  }).reduce((s, e) => s + e.amount, 0);
-  const topCategory  = (() => {
-    const map: Record<string, number> = {};
-    expenses.forEach(e => { map[e.category] = (map[e.category] ?? 0) + e.amount; });
-    const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
-    return sorted[0] ? `${catMap[sorted[0][0] as ExpenseCategory]?.label ?? sorted[0][0]}` : "—";
-  })();
+  const addMut = useMutation({
+    mutationFn: (payload: Parameters<typeof expensesApi.create>[0]) => expensesApi.create(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => expensesApi.delete(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["expenses"] });
+      const prev = qc.getQueryData<Expense[]>(["expenses"]);
+      qc.setQueryData<Expense[]>(["expenses"], old => old?.filter(e => e.id !== id) ?? []);
+      return { prev };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.prev) qc.setQueryData(["expenses"], context.prev);
+      toast.error("Failed to delete expense");
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+    },
+  });
+
+  const debouncedSearch = useDebounce(search, 300);
+
+  const filtered = useMemo(() => expenses.filter(e => {
+    const q = debouncedSearch.toLowerCase();
+    return !q || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q);
+  }), [expenses, debouncedSearch]);
+
+  const handleExport = () => {
+    const columns: CSVColumn<Expense>[] = [
+      { header: "Date",           value: e => new Date(e.date).toISOString().slice(0, 10) },
+      { header: "Description",    value: e => e.description },
+      { header: "Category",       value: e => e.category },
+      { header: "Amount",         value: e => e.amount },
+      { header: "Payment Method", value: e => e.paymentMethod },
+      { header: "Receipt Notes",  value: e => e.receiptNotes ?? "" },
+    ];
+    downloadCSV(toCSV(filtered, columns), datedFilename("expenses"));
+    toast.success(`Exported ${filtered.length} expense${filtered.length === 1 ? "" : "s"}`);
+  };
+
+  const { totalAll, thisMonth, topCategory } = useMemo(() => {
+    const totalAll = expenses.reduce((s, e) => s + e.amount, 0);
+    const thisMonth = expenses.filter(e => {
+      const d = new Date(e.date); const n = new Date();
+      return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
+    }).reduce((s, e) => s + e.amount, 0);
+    const topCategory = (() => {
+      const map: Record<string, number> = {};
+      expenses.forEach(e => { map[e.category] = (map[e.category] ?? 0) + e.amount; });
+      const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
+      return sorted[0] ? `${catMap[sorted[0][0] as ExpenseCategory]?.label ?? sorted[0][0]}` : "—";
+    })();
+    return { totalAll, thisMonth, topCategory };
+  }, [expenses]);
 
   const handleAdd = async () => {
-    setSubmitting(true); setError("");
+    setError("");
     try {
-      await expensesApi.create({
+      await addMut.mutateAsync({
         date: form.date, description: form.description,
         amount: parseFloat(form.amount) || 0, category: form.category,
         paymentMethod: form.paymentMethod,
         receiptNotes: form.receiptNotes || undefined,
       });
-      await fetch();
       setShowAdd(false); setForm(emptyForm());
       toast.success("Expense added successfully");
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to add expense";
       setError(msg);
-    } finally { setSubmitting(false); }
+    }
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
     try {
-      await expensesApi.delete(deleteTarget);
-      setExpenses(prev => prev.filter(e => e.id !== deleteTarget));
+      await deleteMut.mutateAsync(deleteTarget);
       toast.success("Expense deleted");
-    } catch { toast.error("Failed to delete expense"); }
-    finally { setDeleting(false); setDeleteTarget(null); }
+    } catch { /* error handled in onError */ }
+    finally { setDeleteTarget(null); }
   };
 
   return (
@@ -108,9 +141,19 @@ export default function Expenses() {
               <h2 className="text-2xl font-bold tracking-tight">Expenses</h2>
               <p className="text-sm text-muted-foreground mt-1">Track and manage all business expenses.</p>
             </div>
-            <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
-              <Plus size={15} /> Add Expense
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExport}
+                disabled={filtered.length === 0}
+                className="flex items-center gap-2 bg-muted hover:bg-muted/70 text-foreground text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-40"
+                aria-label="Export expenses as CSV"
+              >
+                <Download size={15} aria-hidden /> Export CSV
+              </button>
+              <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
+                <Plus size={15} aria-hidden /> Add Expense
+              </button>
+            </div>
           </div>
 
           {/* Stats */}
@@ -154,7 +197,7 @@ export default function Expenses() {
                   ) : filtered.map((e, i) => {
                     const cat = catMap[e.category] ?? catMap.OTHER;
                     return (
-                      <motion.tr key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                      <motion.tr key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{duration:0.15}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{new Date(e.date).toLocaleDateString("en-IN")}</td>
                         <td className="px-4 py-3 font-medium">{e.description}</td>
                         <td className="px-4 py-3 font-mono text-sm font-semibold text-red-500">{fmt(e.amount)}</td>
@@ -235,9 +278,9 @@ export default function Expenses() {
             </div>
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => { setShowAdd(false); setError(""); }} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
-              <button onClick={handleAdd} disabled={submitting || !form.description || !form.amount}
+              <button onClick={handleAdd} disabled={addMut.isPending || !form.description || !form.amount}
                 className="px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
-                {submitting ? "Adding…" : "Add Expense"}
+                {addMut.isPending ? "Adding…" : "Add Expense"}
               </button>
             </div>
           </motion.div>
@@ -261,9 +304,9 @@ export default function Expenses() {
             </div>
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
-              <button onClick={confirmDelete} disabled={deleting}
+              <button onClick={confirmDelete} disabled={deleteMut.isPending}
                 className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40">
-                {deleting ? "Deleting…" : "Delete"}
+                {deleteMut.isPending ? "Deleting…" : "Delete"}
               </button>
             </div>
           </motion.div>

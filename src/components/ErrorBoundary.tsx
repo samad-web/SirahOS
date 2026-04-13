@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { reportError } from "@/lib/sentry";
 
 interface Props {
   children: ReactNode;
@@ -19,8 +20,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
       console.error("[ErrorBoundary]", error, info.componentStack);
     }
+    // Forward to Sentry if initialized — no-op otherwise.
+    reportError(error, { componentStack: info.componentStack });
   }
 
   private handleReset = () => {

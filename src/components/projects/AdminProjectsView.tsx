@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, X, UserCheck, FolderKanban, CheckCircle2, AlertCircle, ListTodo, History, RefreshCw, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useProjects, ProjectStatus, Task, TaskStatus, TaskPriority, TaskType } from "@/contexts/ProjectContext";
 import { useAuth, ROLE_LABELS } from "@/contexts/AuthContext";
 import { tasksApi, type AssignableUser, type TaskAssignmentLog } from "@/lib/api";
@@ -16,20 +17,21 @@ const statusCls: Record<ProjectStatus, string> = {
 };
 
 const COLUMNS: { status: TaskStatus; label: string; cls: string }[] = [
-  { status: "todo",        label: "To Do",        cls: "border-t-gray-300 dark:border-t-gray-600" },
-  { status: "in_progress", label: "In Progress",  cls: "border-t-blue-400" },
-  { status: "in_review",   label: "In Review",    cls: "border-t-purple-400" },
-  { status: "done",        label: "Done",         cls: "border-t-emerald-400" },
+  { status: "TODO",        label: "To Do",        cls: "border-t-gray-300 dark:border-t-gray-600" },
+  { status: "IN_PROGRESS", label: "In Progress",  cls: "border-t-blue-400" },
+  { status: "IN_REVIEW",   label: "In Review",    cls: "border-t-purple-400" },
+  { status: "DONE",        label: "Done",         cls: "border-t-emerald-400" },
 ];
 
 const priorityCls: Record<string, string> = {
-  low:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
-  medium:   "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
-  high:     "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-600",
-  critical: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  LOW:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  MEDIUM:   "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
+  HIGH:     "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-600",
+  CRITICAL: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
 };
 
 export function AdminProjectsView() {
+  const navigate = useNavigate();
   const { projects, tasks, assignPM, createProject, createTask, assignTask, updateTaskStatus } = useProjects();
   const { allUsers } = useAuth();
 
@@ -42,7 +44,7 @@ export function AdminProjectsView() {
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [taskForm, setTaskForm] = useState<{
     title: string; description: string; type: TaskType; priority: TaskPriority; assigneeId: string;
-  }>({ title: "", description: "", type: "task", priority: "medium", assigneeId: "" });
+  }>({ title: "", description: "", type: "TASK", priority: "MEDIUM", assigneeId: "" });
 
   // Assignable users for selected project
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
@@ -106,7 +108,7 @@ export function AdminProjectsView() {
       });
       toast.success("Task created");
       setShowCreateTask(false);
-      setTaskForm({ title: "", description: "", type: "task", priority: "medium", assigneeId: "" });
+      setTaskForm({ title: "", description: "", type: "TASK", priority: "MEDIUM", assigneeId: "" });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Failed to create task";
       toast.error(msg);
@@ -253,7 +255,7 @@ export function AdminProjectsView() {
                     <h3 className="font-semibold text-sm">Task Board — {selectedProject.name}</h3>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    {projectTasks.length} tasks &middot; {projectTasks.filter(t => t.status !== "done").length} active &middot; {selectedProject.members.length} members
+                    {projectTasks.length} tasks &middot; {projectTasks.filter(t => t.status !== "DONE").length} active &middot; {selectedProject.members.length} members
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -267,6 +269,12 @@ export function AdminProjectsView() {
                       onChange={e => setTaskSearch(e.target.value)}
                     />
                   </div>
+                  <button
+                    onClick={() => navigate(`/tasks?projectId=${selectedProject.id}`)}
+                    title="Open this project's tasks in the cross-project hub — filter, bulk-assign, reassign"
+                    className="flex items-center gap-1.5 text-xs font-medium border border-border px-3 py-2 rounded-xl hover:bg-muted transition-colors">
+                    <UserCheck size={13}/> Bulk assign
+                  </button>
                   <button onClick={() => setShowCreateTask(true)} className="flex items-center gap-2 gradient-primary text-white text-xs font-semibold px-3 py-2 rounded-xl hover:opacity-90 transition-opacity">
                     <Plus size={13}/> New Task
                   </button>
@@ -292,7 +300,7 @@ export function AdminProjectsView() {
                             className="bg-background border border-border rounded-xl p-3 space-y-2 group">
                             <div className="flex items-start justify-between gap-2">
                               <p className="text-xs font-medium leading-snug flex-1">{task.title}</p>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize flex-shrink-0 ${priorityCls[task.priority]}`}>{task.priority}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize flex-shrink-0 ${priorityCls[task.priority]}`}>{task.priority.toLowerCase()}</span>
                             </div>
                             {task.description && <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{task.description}</p>}
                             <div className="flex items-center justify-between">
@@ -309,13 +317,13 @@ export function AdminProjectsView() {
                                 <button onClick={() => openHistory(task)} title="Assignment history" className="p-0.5 rounded hover:bg-muted transition-colors opacity-0 group-hover:opacity-100">
                                   <History size={10} className="text-muted-foreground" />
                                 </button>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{task.type}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{task.type.toLowerCase()}</span>
                               </div>
                             </div>
                             {/* Status advance */}
-                            {col.status !== "done" && (
+                            {col.status !== "DONE" && (
                               <button onClick={() => {
-                                const next: Record<string, TaskStatus> = { todo: "in_progress", in_progress: "in_review", in_review: "done", done: "done" };
+                                const next: Record<string, TaskStatus> = { TODO: "IN_PROGRESS", IN_PROGRESS: "IN_REVIEW", IN_REVIEW: "DONE", DONE: "DONE" };
                                 updateTaskStatus(task.id, next[task.status]);
                               }} className="w-full text-[10px] text-primary font-medium hover:underline text-left pt-1">
                                 &rarr; Move to {COLUMNS[COLUMNS.findIndex(c => c.status === col.status) + 1]?.label}
@@ -432,14 +440,14 @@ export function AdminProjectsView() {
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Type</label>
                   <select className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
                     value={taskForm.type} onChange={e => setTaskForm(f => ({ ...f, type: e.target.value as TaskType }))}>
-                    {(["task","feature","bug","improvement"] as const).map(v => <option key={v} value={v}>{v.charAt(0).toUpperCase()+v.slice(1)}</option>)}
+                    {(["TASK","FEATURE","BUG","IMPROVEMENT"] as const).map(v => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Priority</label>
                   <select className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
                     value={taskForm.priority} onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value as TaskPriority }))}>
-                    {(["low","medium","high","critical"] as const).map(v => <option key={v} value={v}>{v.charAt(0).toUpperCase()+v.slice(1)}</option>)}
+                    {(["LOW","MEDIUM","HIGH","CRITICAL"] as const).map(v => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
                   </select>
                 </div>
               </div>

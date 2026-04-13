@@ -114,7 +114,7 @@ export function OngoingProjects() {
           const lead    = allUsers.find(u => u.id === p.leadId);
           const members = p.members.map(m => m.user);
           const pTasks  = tasks.filter(t => t.projectId === p.id);
-          const done    = pTasks.filter(t => t.status === "done").length;
+          const done    = pTasks.filter(t => t.status === "DONE").length;
           const isOpen  = expanded === p.id;
 
           return (
@@ -265,15 +265,14 @@ export function OngoingProjects() {
                         <div>
                           <span className="text-[10px] text-muted-foreground/70 font-medium uppercase tracking-wide block mb-1">Visibility</span>
                           <div className="flex items-center gap-1.5">
-                            {p.githubVisibility === "private"
+                            {p.visibility === "PRIVATE"
                               ? <Lock size={10} className="text-amber-500"/>
                               : <Globe size={10} className="text-emerald-500"/>}
-                            <span className={`text-[10px] font-medium capitalize ${p.githubVisibility === "private" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                              {p.githubVisibility}
+                            <span className={`text-[10px] font-medium capitalize ${p.visibility === "PRIVATE" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                              {p.visibility.toLowerCase()}
                             </span>
                           </div>
                         </div>
-                        <DetailRow label="GH Account Owner" value={p.githubAccountOwnedBy || "—"}/>
                       </div>
                     </div>
                   </motion.div>

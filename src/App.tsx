@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -8,33 +9,40 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProjectProvider } from "@/contexts/ProjectContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { SessionExpiredModal } from "@/components/SessionExpiredModal";
+import { CommandBar } from "@/components/CommandBar";
+import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
 import Login from "./pages/Login";
-import Index from "./pages/Index";
-import Projects from "./pages/Projects";
-import Invoices from "./pages/Invoices";
-import Customers from "./pages/Customers";
-import Ledger from "./pages/Ledger";
-import SettingsPage from "./pages/SettingsPage";
-import Attendance from "./pages/Attendance";
-import Expenses from "./pages/Expenses";
-import Notes from "./pages/Notes";
-import Leads from "./pages/Leads";
-import LeadDetail from "./pages/LeadDetail";
-import Employees from "./pages/Employees";
-import Profile from "./pages/Profile";
-import Companies from "./pages/Companies";
-import CompanyDetail from "./pages/CompanyDetail";
-import Forbidden from "./pages/Forbidden";
-import NotFound from "./pages/NotFound";
+
+// Lazy-load all protected pages — only the bundle for the current route is fetched
+const Index = lazy(() => import("./pages/Index"));
+const Projects = lazy(() => import("./pages/Projects"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const Invoices = lazy(() => import("./pages/Invoices"));
+const RecurringInvoices = lazy(() => import("./pages/RecurringInvoices"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Ledger = lazy(() => import("./pages/Ledger"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const Attendance = lazy(() => import("./pages/Attendance"));
+const Expenses = lazy(() => import("./pages/Expenses"));
+const Notes = lazy(() => import("./pages/Notes"));
+const Leads = lazy(() => import("./pages/Leads"));
+const LeadDetail = lazy(() => import("./pages/LeadDetail"));
+const Employees = lazy(() => import("./pages/Employees"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Companies = lazy(() => import("./pages/Companies"));
+const CompanyDetail = lazy(() => import("./pages/CompanyDetail"));
+const ContentPipeline = lazy(() => import("./pages/ContentPipeline"));
+const Forbidden = lazy(() => import("./pages/Forbidden"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 30_000,              // 30 seconds — data stays fresh
-      gcTime: 10 * 60_000,            // 10 minutes — keep in cache
-      refetchOnWindowFocus: true,      // refetch on tab switch for real-time data
-      refetchOnReconnect: true,        // refetch when network reconnects
+      staleTime: 5 * 60_000,           // 5 minutes — cached data served instantly on navigation
+      gcTime: 15 * 60_000,             // 15 minutes — keep in cache longer
+      refetchOnWindowFocus: "always",   // background refresh on tab switch (UI stays instant)
+      refetchOnReconnect: true,
     },
   },
 });
@@ -49,6 +57,9 @@ const App = () => (
             <Sonner />
             <SessionExpiredModal />
             <BrowserRouter>
+              <CommandBar />
+              <KeyboardShortcutsHelp />
+              <Suspense fallback={null}>
               <Routes>
                 {/* Public */}
                 <Route path="/login" element={<Login />} />
@@ -81,6 +92,11 @@ const App = () => (
                     <Invoices />
                   </ProtectedRoute>
                 } />
+                <Route path="/recurring-invoices" element={
+                  <ProtectedRoute allowedRoles={["ADMIN"]} feature="billing">
+                    <RecurringInvoices />
+                  </ProtectedRoute>
+                } />
                 <Route path="/customers" element={
                   <ProtectedRoute allowedRoles={["ADMIN"]} feature="billing">
                     <Customers />
@@ -104,9 +120,9 @@ const App = () => (
                   </ProtectedRoute>
                 } />
 
-                {/* Notes */}
+                {/* Notes & Goals — all authenticated users */}
                 <Route path="/notes" element={
-                  <ProtectedRoute allowedRoles={["ADMIN"]}>
+                  <ProtectedRoute>
                     <Notes />
                   </ProtectedRoute>
                 } />
@@ -137,10 +153,24 @@ const App = () => (
                   </ProtectedRoute>
                 } />
 
+                {/* Content Pipeline (Editor + Digital Marketer) */}
+                <Route path="/content" element={
+                  <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN", "DIGITAL_MARKETER", "EDITOR"]}>
+                    <ContentPipeline />
+                  </ProtectedRoute>
+                } />
+
                 {/* Projects routes */}
                 <Route path="/projects" element={
                   <ProtectedRoute feature="projects">
                     <Projects />
+                  </ProtectedRoute>
+                } />
+
+                {/* Cross-project task hub — managers and above */}
+                <Route path="/tasks" element={
+                  <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD"]} feature="projects">
+                    <Tasks />
                   </ProtectedRoute>
                 } />
 
@@ -158,6 +188,7 @@ const App = () => (
                   </ProtectedRoute>
                 } />
               </Routes>
+              </Suspense>
             </BrowserRouter>
           </TooltipProvider>
         </ProjectProvider>

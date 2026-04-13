@@ -2,9 +2,8 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth, getUserCompanyId } from "../middleware/auth";
-import { adminOnly } from "../middleware/rbac";
 import { audit } from "../middleware/audit";
-import { attachCompany, requireCompanyMatch } from "../middleware/companyScope";
+import { attachCompany } from "../middleware/companyScope";
 
 const router = Router();
 
@@ -18,12 +17,24 @@ const updateNoteSchema = z.object({
   content: z.string().optional(),
 });
 
-router.use(requireAuth, attachCompany, adminOnly);
+// All authenticated users can access their own notes
+router.use(requireAuth, attachCompany);
 
-// GET /api/notes
+// GET /api/notes — list current user's notes (+ legacy company-wide notes with no owner)
 router.get("/", async (req: Request, res: Response) => {
+  const userId = req.user!.sub;
   const companyId = getUserCompanyId(req);
-  const notes = await prisma.note.findMany({ where: companyId ? { companyId } : {}, orderBy: { updatedAt: "desc" }, take: 200 });
+  const notes = await prisma.note.findMany({
+    where: {
+      OR: [
+        { userId },
+        // Legacy notes created before per-user scoping — visible to everyone in the same company
+        { userId: null, companyId: companyId ?? undefined },
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
   res.json(notes);
 });
 
@@ -37,11 +48,21 @@ router.post(
       res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       return;
     }
+    const userId = req.user!.sub;
     const companyId = getUserCompanyId(req);
-    const note = await prisma.note.create({ data: { ...parsed.data, companyId: companyId ?? undefined } });
+    const note = await prisma.note.create({
+      data: { ...parsed.data, userId, companyId: companyId ?? undefined },
+    });
     res.status(201).json(note);
   }
 );
+
+// Helper: a user can edit a note if they own it, OR if it's a legacy unowned note in their company
+function canModifyNote(existing: { userId: string | null; companyId: string | null }, userId: string, companyId: string | undefined): boolean {
+  if (existing.userId === userId) return true;
+  if (existing.userId === null && existing.companyId === (companyId ?? null)) return true;
+  return false;
+}
 
 // PATCH /api/notes/:id
 router.patch(
@@ -53,11 +74,15 @@ router.patch(
       res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       return;
     }
+    const userId = req.user!.sub;
+    const companyId = getUserCompanyId(req);
     const existing = await prisma.note.findUnique({ where: { id: req.params.id as string } });
     if (!existing) { res.status(404).json({ error: "Note not found" }); return; }
-    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+    if (!canModifyNote(existing, userId, companyId)) { res.status(403).json({ error: "Access denied" }); return; }
 
-    const note = await prisma.note.update({ where: { id: req.params.id as string }, data: parsed.data });
+    // Claim ownership if this was a legacy unowned note
+    const data = existing.userId === null ? { ...parsed.data, userId } : parsed.data;
+    const note = await prisma.note.update({ where: { id: req.params.id as string }, data });
     res.json(note);
   }
 );
@@ -67,9 +92,11 @@ router.delete(
   "/:id",
   audit({ action: "DELETE_NOTE", resourceType: "Note" }),
   async (req: Request, res: Response) => {
+    const userId = req.user!.sub;
+    const companyId = getUserCompanyId(req);
     const existing = await prisma.note.findUnique({ where: { id: req.params.id as string } });
     if (!existing) { res.status(404).json({ error: "Note not found" }); return; }
-    if (!requireCompanyMatch(existing.companyId, req)) { res.status(403).json({ error: "Access denied" }); return; }
+    if (!canModifyNote(existing, userId, companyId)) { res.status(403).json({ error: "Access denied" }); return; }
 
     await prisma.note.delete({ where: { id: req.params.id as string } });
     res.json({ ok: true });

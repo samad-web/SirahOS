@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import {
   Plus, Users, UserCheck,
   X, Mail, Phone, CreditCard, CalendarClock,
-  StickyNote, Save, Loader2,
+  StickyNote, Save, Loader2, Download,
 } from "lucide-react";
 import { customersApi, Customer } from "@/lib/api";
 import { useDebounce } from "@/hooks/useDebounce";
+import { toCSV, downloadCSV, datedFilename, type CSVColumn } from "@/lib/csv";
 import { toast } from "sonner";
 
 const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -20,44 +22,43 @@ const emptyForm = () => ({
 });
 
 export default function Customers() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const qc = useQueryClient();
+  const { data: customers = [], isLoading: loading } = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => customersApi.list().then(r => r.data),
+  });
+
   const [search, setSearch]       = useState("");
   const [showAdd, setShowAdd]     = useState(false);
   const [form, setForm]           = useState(emptyForm());
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError]         = useState("");
 
   // Detail / Notes panel
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [notesValue, setNotesValue] = useState("");
-  const [notesSaving, setNotesSaving] = useState(false);
-
-  const fetchCustomers = useCallback(async () => {
-    try {
-      const { data } = await customersApi.list();
-      setCustomers(data);
-    } catch { /* silently fail */ } finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   const debouncedSearch = useDebounce(search, 300);
-  const filtered = customers.filter(c => {
+  const filtered = useMemo(() => customers.filter(c => {
     const q = debouncedSearch.toLowerCase();
     return !q || c.name.toLowerCase().includes(q) || (c.company ?? "").toLowerCase().includes(q) || c.email.toLowerCase().includes(q);
-  });
+  }), [customers, debouncedSearch]);
 
-  const activeCount  = customers.filter(c => c.status === "ACTIVE").length;
-  const emiCount     = customers.filter(c => c.paymentType === "EMI").length;
+  const { activeCount, emiCount } = useMemo(() => ({
+    activeCount: customers.filter(c => c.status === "ACTIVE").length,
+    emiCount: customers.filter(c => c.paymentType === "EMI").length,
+  }), [customers]);
 
   // Auto-calculate total months
   const totalAmt   = parseFloat(form.totalAmount) || 0;
   const monthlyAmt = parseFloat(form.monthlyEmi) || 0;
   const calcMonths = totalAmt > 0 && monthlyAmt > 0 ? Math.ceil(totalAmt / monthlyAmt) : 0;
 
+  const addMut = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => customersApi.create(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["customers"] }),
+  });
+
   const handleAdd = async () => {
-    setSubmitting(true);
     setError("");
     try {
       const payload: Record<string, unknown> = {
@@ -72,15 +73,14 @@ export default function Customers() {
         payload.totalAmount = totalAmt;
         payload.monthlyEmi = monthlyAmt;
       }
-      await customersApi.create(payload);
-      await fetchCustomers();
+      await addMut.mutateAsync(payload);
       setShowAdd(false);
       setForm(emptyForm());
       toast.success("Customer added successfully");
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to add customer";
       setError(msg);
-    } finally { setSubmitting(false); }
+    }
   };
 
   const openCustomer = (c: Customer) => {
@@ -88,19 +88,50 @@ export default function Customers() {
     setNotesValue(c.notes ?? "");
   };
 
-  const handleSaveNotes = async () => {
+  const notesMut = useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes: string | null }) =>
+      customersApi.update(id, { notes }),
+    onMutate: async ({ id, notes }) => {
+      await qc.cancelQueries({ queryKey: ["customers"] });
+      const previous = qc.getQueryData<Customer[]>(["customers"]);
+      qc.setQueryData<Customer[]>(["customers"], old =>
+        old?.map(c => c.id === id ? { ...c, notes: notes ?? undefined } : c),
+      );
+      setSelectedCustomer(prev => prev ? { ...prev, notes: notes ?? undefined } : null);
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) qc.setQueryData(["customers"], context.previous);
+      toast.error("Failed to save notes");
+    },
+    onSuccess: () => { toast.success("Notes saved"); },
+    onSettled: () => { qc.invalidateQueries({ queryKey: ["customers"] }); },
+  });
+
+  const handleSaveNotes = () => {
     if (!selectedCustomer) return;
-    setNotesSaving(true);
-    try {
-      await customersApi.update(selectedCustomer.id, { notes: notesValue || null });
-      setCustomers(prev => prev.map(c => c.id === selectedCustomer.id ? { ...c, notes: notesValue || undefined } : c));
-      setSelectedCustomer(prev => prev ? { ...prev, notes: notesValue || undefined } : null);
-      toast.success("Notes saved");
-    } catch { toast.error("Failed to save notes"); }
-    finally { setNotesSaving(false); }
+    notesMut.mutate({ id: selectedCustomer.id, notes: notesValue || null });
   };
 
   const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+
+  const handleExport = () => {
+    const columns: CSVColumn<Customer>[] = [
+      { header: "Name",          value: c => c.name },
+      { header: "Company",       value: c => c.company ?? "" },
+      { header: "Email",         value: c => c.email },
+      { header: "Phone",         value: c => c.phone ?? "" },
+      { header: "GSTIN",         value: c => c.gstin ?? "" },
+      { header: "Payment Type",  value: c => c.paymentType },
+      { header: "Total Amount",  value: c => c.totalAmount ?? "" },
+      { header: "Monthly EMI",   value: c => c.monthlyEmi ?? "" },
+      { header: "Total Months",  value: c => c.totalMonths ?? "" },
+      { header: "Status",        value: c => c.status },
+      { header: "Created",       value: c => new Date(c.createdAt).toISOString().slice(0, 10) },
+    ];
+    downloadCSV(toCSV(filtered, columns), datedFilename("customers"));
+    toast.success(`Exported ${filtered.length} customer${filtered.length === 1 ? "" : "s"}`);
+  };
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -114,9 +145,19 @@ export default function Customers() {
               <h2 className="text-2xl font-bold tracking-tight">Customers</h2>
               <p className="text-sm text-muted-foreground mt-1">Manage client relationships and billing history.</p>
             </div>
-            <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
-              <Plus size={15} /> Add Customer
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExport}
+                disabled={filtered.length === 0}
+                className="flex items-center gap-2 bg-muted hover:bg-muted/70 text-foreground text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-40"
+                aria-label="Export customers as CSV"
+              >
+                <Download size={15} aria-hidden /> Export CSV
+              </button>
+              <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
+                <Plus size={15} aria-hidden /> Add Customer
+              </button>
+            </div>
           </div>
 
           {/* Stats */}
@@ -158,7 +199,7 @@ export default function Customers() {
                       </tr>
                     ))
                   ) : filtered.map((c, i) => (
-                    <motion.tr key={c.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                    <motion.tr key={c.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{duration:0.15}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
@@ -299,9 +340,9 @@ export default function Customers() {
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => { setShowAdd(false); setError(""); }} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
               <button onClick={handleAdd}
-                disabled={submitting || !form.name || !form.email || (form.paymentType === "EMI" && (!totalAmt || !monthlyAmt))}
+                disabled={addMut.isPending || !form.name || !form.email || (form.paymentType === "EMI" && (!totalAmt || !monthlyAmt))}
                 className="px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
-                {submitting ? "Adding…" : "Add Customer"}
+                {addMut.isPending ? "Adding…" : "Add Customer"}
               </button>
             </div>
           </motion.div>
@@ -372,9 +413,9 @@ export default function Customers() {
 
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => setSelectedCustomer(null)} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Close</button>
-              <button onClick={handleSaveNotes} disabled={notesSaving || notesValue === (selectedCustomer.notes ?? "")}
+              <button onClick={handleSaveNotes} disabled={notesMut.isPending || notesValue === (selectedCustomer.notes ?? "")}
                 className="flex items-center gap-1.5 px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
-                {notesSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                {notesMut.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
                 Save Notes
               </button>
             </div>

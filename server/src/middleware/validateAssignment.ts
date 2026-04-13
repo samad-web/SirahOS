@@ -22,7 +22,8 @@ export async function canAssign(
   projectId: string
 ): Promise<AssignmentResult> {
   // Members cannot assign tasks
-  if (assignerRole === "DEVELOPER" || assignerRole === "TESTER") {
+  const MEMBER_ROLES: string[] = ["DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
+  if (MEMBER_ROLES.includes(assignerRole)) {
     return { allowed: false, reason: "Your role does not permit task assignment" };
   }
 
@@ -89,13 +90,14 @@ export async function canAssign(
     return { allowed: true };
   }
 
-  // Lead: can assign to Members (DEV/TESTER) in the project they lead
+  // Lead: can assign to project members (DEVELOPER, TESTER, EDITOR, DIGITAL_MARKETER) in their project
   if (assignerRole === "LEAD") {
     if (project.leadId !== assignerId) {
       return { allowed: false, reason: "You can only assign tasks in projects you lead" };
     }
-    if (target.role !== "DEVELOPER" && target.role !== "TESTER") {
-      return { allowed: false, reason: "Leads can only assign tasks to Developers and Testers" };
+    const LEAD_ASSIGNABLE_ROLES: string[] = ["DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
+    if (!LEAD_ASSIGNABLE_ROLES.includes(target.role)) {
+      return { allowed: false, reason: "Leads can only assign tasks to project members (Developers, Testers, Editors, Marketers)" };
     }
     if (!isTargetInProject) {
       return { allowed: false, reason: "User is not a member of this project" };
@@ -118,7 +120,8 @@ export async function getAssignableUsers(
   const userSelect = { id: true, name: true, initials: true, role: true, status: true };
 
   // Members cannot assign
-  if (role === "DEVELOPER" || role === "TESTER") {
+  const MEMBER_ROLES: string[] = ["DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
+  if (MEMBER_ROLES.includes(role)) {
     return [];
   }
 
@@ -169,7 +172,7 @@ export async function getAssignableUsers(
     return users.filter((u) => u && u.status === "ACTIVE");
   }
 
-  // Lead: only DEVELOPER/TESTER members in their project
+  // Lead: project members (DEVELOPER, TESTER, EDITOR, DIGITAL_MARKETER) in their project
   if (role === "LEAD") {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
@@ -180,9 +183,10 @@ export async function getAssignableUsers(
     });
     if (!project || project.leadId !== userId) return [];
 
+    const LEAD_ASSIGNABLE_ROLES: string[] = ["DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
     return project.members
       .map((m) => m.user)
-      .filter((u) => u.id !== userId && (u.role === "DEVELOPER" || u.role === "TESTER") && u.status === "ACTIVE");
+      .filter((u) => u.id !== userId && LEAD_ASSIGNABLE_ROLES.includes(u.role) && u.status === "ACTIVE");
   }
 
   return [];

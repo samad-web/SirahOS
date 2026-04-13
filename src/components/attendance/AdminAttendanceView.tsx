@@ -18,7 +18,7 @@ const ATTENDANCE_META: Record<AttendanceStatus, { label: string; cls: string; do
   WFH:     { label: "WFH",      cls: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",               dot: "bg-blue-500"    },
 };
 
-const LEAVE_STATUS_META: Record<LeaveStatus, { label: string; cls: string; icon: React.ElementType }> = {
+const LEAVE_STATUS_META: Record<LeaveStatus, { label: string; cls: string; icon: React.ElementType; dot?: string }> = {
   REQUESTED:  { label: "Requested",  cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",           icon: Clock         },
   IN_PROCESS: { label: "In Process", cls: "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",     icon: AlertCircle   },
   APPROVED:   { label: "Approved",   cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400", icon: CheckCircle2 },

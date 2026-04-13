@@ -25,6 +25,7 @@ import {
   cleanupExpiredTokens,
   pruneOldAuditLogs,
 } from "./monthly-refresh";
+import { runAllDueRecurringInvoices } from "./recurring-runner";
 
 const TZ = { timezone: "Asia/Kolkata" };
 const tasks: ScheduledTask[] = [];
@@ -82,9 +83,13 @@ export function initScheduler() {
     cron.schedule("30 0 1 1 *", safeJob("Leave rollover",         rolloverLeaveBalances),       TZ),
     cron.schedule("0 2 1 * *",  safeJob("Token cleanup",          cleanupExpiredTokens),        TZ),
     cron.schedule("0 3 1 * *",  safeJob("Audit log prune",        pruneOldAuditLogs),           TZ),
+    // Daily at 06:00 IST — generate invoices from recurring templates
+    // whose nextRunAt has arrived. Safe to run every day; it's a no-op
+    // if nothing is due.
+    cron.schedule("0 6 * * *",  safeJob("Recurring invoice run",  runAllDueRecurringInvoices),  TZ),
   );
 
-  log.info("6 jobs registered (IST timezone)");
+  log.info("7 jobs registered (IST timezone)");
 }
 
 /** Stop all cron tasks (used during graceful shutdown) */

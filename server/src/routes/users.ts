@@ -42,7 +42,7 @@ router.get("/", requireAuth, attachCompany, adminOnly, async (req: Request, res:
     where: companyId ? { companyId } : {},
     select: {
       id: true, name: true, email: true, role: true,
-      status: true, initials: true, createdAt: true,
+      status: true, initials: true, avatarUrl: true, createdAt: true,
       reportsToId: true,
       reportsTo: { select: reportsToSelect },
     },
@@ -105,7 +105,7 @@ router.post(
       },
       select: {
         id: true, name: true, email: true, role: true, status: true,
-        initials: true, createdAt: true, reportsToId: true,
+        initials: true, avatarUrl: true, createdAt: true, reportsToId: true,
         reportsTo: { select: reportsToSelect },
       },
     });
@@ -214,7 +214,21 @@ router.patch(
       data.initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
     }
     if (email) data.email = email.toLowerCase();
-    if (role) data.role = role;
+    if (role) {
+      // A user's role can only be changed by the person they report to,
+      // or by a Super Admin (who bypasses all restrictions).
+      if (req.user!.role !== "SUPER_ADMIN") {
+        const target = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { reportsToId: true },
+        });
+        if (!target || target.reportsToId !== req.user!.sub) {
+          res.status(403).json({ error: "Only the person this user reports to can change their role" });
+          return;
+        }
+      }
+      data.role = role;
+    }
     if (reportsToId !== undefined) data.reportsToId = reportsToId;
 
     if (Object.keys(data).length === 0) {
@@ -227,7 +241,7 @@ router.patch(
       data,
       select: {
         id: true, name: true, email: true, role: true, status: true,
-        initials: true, createdAt: true, reportsToId: true,
+        initials: true, avatarUrl: true, createdAt: true, reportsToId: true,
         reportsTo: { select: reportsToSelect },
       },
     });
@@ -277,7 +291,7 @@ router.get("/profile", requireAuth, async (req: Request, res: Response) => {
     where: { id: req.user!.sub },
     select: {
       id: true, name: true, email: true, role: true, status: true,
-      initials: true, createdAt: true, updatedAt: true,
+      initials: true, avatarUrl: true, createdAt: true, updatedAt: true,
       reportsToId: true,
       reportsTo: { select: reportsToSelect },
       _count: {
@@ -339,13 +353,42 @@ router.patch("/profile", requireAuth, passwordChangeLimiter, async (req: Request
     data,
     select: {
       id: true, name: true, email: true, role: true, status: true,
-      initials: true, createdAt: true, updatedAt: true,
+      initials: true, avatarUrl: true, createdAt: true, updatedAt: true,
       reportsToId: true,
       reportsTo: { select: reportsToSelect },
     },
   });
 
   res.json(user);
+});
+
+// PATCH /api/users/profile/avatar — upload or remove profile picture
+// Accepts { avatar: "<base64 data URL>" } or { avatar: null } to remove.
+// Max payload ~100KB (enforced here, not at Express level where limit is 10MB).
+const MAX_AVATAR_BYTES = 100_000;
+
+router.patch("/profile/avatar", requireAuth, async (req: Request, res: Response) => {
+  const { avatar } = req.body as { avatar?: string | null };
+
+  if (avatar === null || avatar === "") {
+    // Remove avatar
+    await prisma.user.update({ where: { id: req.user!.sub }, data: { avatarUrl: null } });
+    res.json({ avatarUrl: null });
+    return;
+  }
+
+  if (typeof avatar !== "string" || !avatar.startsWith("data:image/")) {
+    res.status(400).json({ error: "avatar must be a base64 data URL starting with 'data:image/'" });
+    return;
+  }
+
+  if (avatar.length > MAX_AVATAR_BYTES) {
+    res.status(400).json({ error: `Avatar too large (max ${Math.round(MAX_AVATAR_BYTES / 1024)}KB)` });
+    return;
+  }
+
+  await prisma.user.update({ where: { id: req.user!.sub }, data: { avatarUrl: avatar } });
+  res.json({ avatarUrl: avatar });
 });
 
 export default router;

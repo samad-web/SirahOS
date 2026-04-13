@@ -4,9 +4,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, FileText, Users, BookOpen,
   FolderKanban, Settings, LogOut, CalendarDays, Receipt, StickyNote, UserPlus, UsersRound,
-  Menu, X, Building2,
+  Menu, X, Building2, ListTodo, Repeat, Send, Clapperboard,
 } from "lucide-react";
 import { useAuth, ROUTE_ACCESS, ROLE_LABELS } from "@/contexts/AuthContext";
+import { can } from "@/lib/permissions";
+import { QuickAssignTask } from "@/components/QuickAssignTask";
 
 interface NavSection {
   title: string;
@@ -26,23 +28,31 @@ const allSections: NavSection[] = [
     items: [
       { icon: UsersRound, label: "Employees", path: "/employees" },
       { icon: FolderKanban, label: "Projects", path: "/projects" },
+      { icon: ListTodo, label: "Tasks", path: "/tasks" },
       { icon: CalendarDays, label: "Attendance", path: "/attendance" },
+      { icon: StickyNote, label: "Notes & Goals", path: "/notes" },
     ],
   },
   {
     title: "Billing",
     items: [
       { icon: FileText, label: "Invoices", path: "/invoices" },
+      { icon: Repeat, label: "Recurring", path: "/recurring-invoices" },
       { icon: Users, label: "Customers", path: "/customers" },
       { icon: Receipt, label: "Expenses", path: "/expenses" },
       { icon: BookOpen, label: "Ledger", path: "/ledger" },
     ],
   },
   {
+    title: "Content",
+    items: [
+      { icon: Clapperboard, label: "Content Pipeline", path: "/content" },
+    ],
+  },
+  {
     title: "Tools",
     items: [
       { icon: UserPlus, label: "Leads", path: "/leads" },
-      { icon: StickyNote, label: "Notes", path: "/notes" },
     ],
   },
 ];
@@ -50,6 +60,7 @@ const allSections: NavSection[] = [
 // Map paths to feature flags for filtering
 const PATH_FEATURE_MAP: Record<string, "billing" | "projects" | "attendance" | "leads"> = {
   "/projects": "projects",
+  "/tasks": "projects",
   "/invoices": "billing",
   "/customers": "billing",
   "/expenses": "billing",
@@ -63,15 +74,28 @@ export function AppSidebar() {
   const location = useLocation();
   const { user, logout, hasFeature } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [quickAssignOpen, setQuickAssignOpen] = useState(false);
 
   const role = user?.role ?? "DEVELOPER";
   const isSuperAdmin = role === "SUPER_ADMIN";
   const allowed = ROUTE_ACCESS;
   const canSettings = !isSuperAdmin && (allowed["/settings"] ?? []).includes(role);
+  const canAssign = can.assignTasks(role);
   const { label: roleLbl, cls: roleCls } = ROLE_LABELS[role];
 
   // Close mobile sidebar on route change
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+
+  // Label the first <main> element on the current page with id="main-content"
+  // so the skip-link target resolves consistently across all 18 pages
+  // without having to edit each one. tabIndex=-1 makes it programmatically
+  // focusable so screen reader focus actually moves there on activation.
+  useEffect(() => {
+    const mainEl = document.querySelector("main");
+    if (!mainEl) return;
+    if (!mainEl.id) mainEl.id = "main-content";
+    mainEl.setAttribute("tabindex", "-1");
+  }, [location.pathname]);
 
   // Close on Escape key
   useEffect(() => {
@@ -132,7 +156,7 @@ export function AppSidebar() {
       </div>
 
       {/* Nav */}
-      <nav className={`flex-1 py-3 flex flex-col ${expanded ? "px-3" : "items-center"} gap-0.5 overflow-y-auto`}>
+      <nav aria-label="Primary" className={`flex-1 py-3 flex flex-col ${expanded ? "px-3" : "items-center"} gap-0.5 overflow-y-auto`}>
         {sections.map((section, si) => (
           <div key={section.title}>
             {si > 0 && <div className={`${expanded ? "mx-1" : "mx-2"} my-2 border-t border-sidebar-border`} />}
@@ -167,8 +191,19 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      {/* Bottom: settings + user + logout */}
+      {/* Bottom: assign task + settings + user + logout */}
       <div className={`border-t border-sidebar-border pt-3 pb-3 flex flex-col ${expanded ? "px-3" : "items-center"} gap-1`}>
+        {canAssign && (
+          <button
+            onClick={() => setQuickAssignOpen(true)}
+            title={!expanded ? "Assign Task" : undefined}
+            aria-label="Assign Task"
+            className={`${expanded ? "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm" : "w-10 h-10 flex items-center justify-center rounded-xl"} gradient-primary text-white font-medium transition-all duration-200 hover:opacity-90`}
+          >
+            <Send size={expanded ? 16 : 18} strokeWidth={1.5} />
+            {expanded && <span>Assign Task</span>}
+          </button>
+        )}
         {canSettings && (
           <button
             onClick={() => navTo("/settings")}
@@ -236,13 +271,19 @@ export function AppSidebar() {
 
   return (
     <>
+      {/* Skip link — only visible when focused via Tab. First thing screen
+          reader + keyboard users hit on every page. */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Mobile hamburger button */}
       <button
         onClick={() => setMobileOpen(true)}
         aria-label="Open navigation menu"
         className="fixed top-3 left-3 z-40 w-10 h-10 flex items-center justify-center rounded-xl bg-background border border-border shadow-sm lg:hidden"
       >
-        <Menu size={18} />
+        <Menu size={18} aria-hidden />
       </button>
 
       {/* Mobile overlay sidebar */}
@@ -281,6 +322,9 @@ export function AppSidebar() {
       <aside className="hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border h-screen sticky top-0 w-[64px] flex-shrink-0">
         {sidebarContent(false)}
       </aside>
+
+      {/* Quick Assign Task modal — rendered here so it's available from every page */}
+      <QuickAssignTask open={quickAssignOpen} onClose={() => setQuickAssignOpen(false)} />
     </>
   );
 }

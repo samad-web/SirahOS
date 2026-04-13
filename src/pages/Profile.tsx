@@ -12,54 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth, ROLE_LABELS, ROUTE_ACCESS } from "@/contexts/AuthContext";
 import { usersApi, finesApi } from "@/lib/api";
 import type { UserProfile, Fine, FineUserSummary } from "@/lib/api";
-
-// ─── Permission matrix by role ───────────────────────────────────────────────
-
-const PERMISSION_GROUPS: { label: string; permissions: { name: string; roles: string[] }[] }[] = [
-  {
-    label: "Dashboard & Reports",
-    permissions: [
-      { name: "View dashboard & analytics", roles: ["ADMIN"] },
-      { name: "View revenue reports", roles: ["ADMIN"] },
-    ],
-  },
-  {
-    label: "Projects & Tasks",
-    permissions: [
-      { name: "Create projects", roles: ["ADMIN"] },
-      { name: "Manage project teams", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD"] },
-      { name: "Create & assign tasks", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD"] },
-      { name: "View assigned tasks", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"] },
-      { name: "Report bugs", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"] },
-    ],
-  },
-  {
-    label: "Billing & Finance",
-    permissions: [
-      { name: "Manage customers", roles: ["ADMIN"] },
-      { name: "Create & edit invoices", roles: ["ADMIN"] },
-      { name: "View ledger", roles: ["ADMIN"] },
-      { name: "Manage expenses", roles: ["ADMIN"] },
-    ],
-  },
-  {
-    label: "Administration",
-    permissions: [
-      { name: "Manage users", roles: ["ADMIN"] },
-      { name: "Access settings", roles: ["ADMIN", "PROJECT_MANAGER"] },
-      { name: "Purge data", roles: ["ADMIN"] },
-      { name: "View leads", roles: ["ADMIN"] },
-    ],
-  },
-  {
-    label: "Attendance & Leaves",
-    permissions: [
-      { name: "Mark own attendance", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"] },
-      { name: "View team attendance", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD"] },
-      { name: "Approve leave requests", roles: ["ADMIN", "PROJECT_MANAGER", "LEAD"] },
-    ],
-  },
-];
+import { PERMISSIONS as PERMISSION_GROUPS } from "@/lib/permissions";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -108,6 +61,28 @@ const ROUTE_LABELS: Record<string, string> = {
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
+
+/** Resize an image file to a square thumbnail and return a base64 data URL. */
+function resizeImageToDataUrl(file: File, size: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+      // Center-crop: take the largest centered square from the source
+      const srcSize = Math.min(img.width, img.height);
+      const sx = (img.width - srcSize) / 2;
+      const sy = (img.height - srcSize) / 2;
+      ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, size, size);
+      const dataUrl = canvas.toDataURL("image/webp", 0.8);
+      resolve(dataUrl);
+    };
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 export default function Profile() {
   const { user: authUser } = useAuth();
@@ -159,6 +134,32 @@ export default function Profile() {
     .filter(([, roles]) => roles.includes(role))
     .map(([path]) => ROUTE_LABELS[path] ?? path)
     .filter(Boolean);
+
+  // Avatar upload — resizes to 128×128 thumbnail, converts to base64, sends to API
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file (PNG, JPG, or WebP)");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be under 5MB");
+      return;
+    }
+
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 128);
+      await usersApi.updateAvatar(dataUrl);
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast.success("Profile picture updated");
+    } catch {
+      toast.error("Failed to upload picture");
+    }
+  };
 
   // Save name
   const handleSaveName = async () => {
@@ -283,41 +284,35 @@ export default function Profile() {
             <>
               {/* ─── Header Card ─── */}
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="surface-elevated overflow-hidden">
-                <div className="h-24 gradient-primary relative" />
-                <div className="px-6 pb-6 -mt-10">
-                  <div className="flex items-end gap-4">
-                    <div className="w-20 h-20 rounded-2xl gradient-primary flex items-center justify-center border-4 border-background shadow-lg flex-shrink-0">
-                      <span className="text-2xl font-bold text-white">{profile.initials}</span>
-                    </div>
-                    <div className="flex-1 min-w-0 pb-1">
-                      <div className="flex items-center gap-2">
-                        {editingName ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              autoFocus
-                              className="text-xl font-bold bg-muted rounded-lg px-2 py-1 outline-none focus:ring-2 ring-primary/20"
-                              value={nameValue}
-                              onChange={e => setNameValue(e.target.value)}
-                              onKeyDown={e => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") setEditingName(false); }}
-                            />
-                            <button onClick={handleSaveName} disabled={nameSaving} className="p-1.5 rounded-lg hover:bg-muted text-primary">
-                              {nameSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                            </button>
-                            <button onClick={() => { setEditingName(false); setNameValue(profile.name); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <h2 className="text-xl font-bold truncate">{profile.name}</h2>
-                            <button onClick={() => setEditingName(true)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground" title="Edit name">
-                              <Pencil size={13} />
-                            </button>
-                          </>
-                        )}
+                {/* Gradient banner */}
+                <div className="h-32 gradient-primary relative" />
+
+                {/* Avatar overlaps the banner — name/email sit below on the card */}
+                <div className="px-6 pb-6">
+                  {/* Avatar row — pulled up into the banner with negative margin */}
+                  <div className="-mt-10 mb-4 flex items-end justify-between">
+                    <label
+                      htmlFor="avatar-upload"
+                      className="w-20 h-20 rounded-2xl gradient-primary flex items-center justify-center border-4 border-card shadow-lg flex-shrink-0 cursor-pointer group relative overflow-hidden"
+                      title="Click to change profile picture"
+                    >
+                      {profile.avatarUrl ? (
+                        <img src={profile.avatarUrl} alt={profile.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-2xl font-bold text-white">{profile.initials}</span>
+                      )}
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Pencil size={16} className="text-white" />
                       </div>
-                      <p className="text-sm text-muted-foreground">{profile.email}</p>
-                    </div>
+                      <input
+                        id="avatar-upload"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={handleAvatarUpload}
+                      />
+                    </label>
+                    {/* Badges — aligned to the right of the avatar row */}
                     <div className="flex items-center gap-2 pb-1">
                       <span className={`text-xs font-semibold px-3 py-1 rounded-full ${roleCls}`}>{roleLabel}</span>
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize ${
@@ -326,6 +321,37 @@ export default function Profile() {
                           : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
                       }`}>{profile.status.toLowerCase()}</span>
                     </div>
+                  </div>
+
+                  {/* Name + email — fully on the card background, always readable */}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      {editingName ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            className="text-xl font-bold bg-muted rounded-lg px-2 py-1 outline-none focus:ring-2 ring-primary/20"
+                            value={nameValue}
+                            onChange={e => setNameValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") setEditingName(false); }}
+                          />
+                          <button onClick={handleSaveName} disabled={nameSaving} className="p-1.5 rounded-lg hover:bg-muted text-primary">
+                            {nameSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                          </button>
+                          <button onClick={() => { setEditingName(false); setNameValue(profile.name); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <h2 className="text-xl font-bold truncate">{profile.name}</h2>
+                          <button onClick={() => setEditingName(true)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground" title="Edit name">
+                            <Pencil size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-0.5">{profile.email}</p>
                   </div>
                 </div>
               </motion.div>
@@ -441,7 +467,8 @@ export default function Profile() {
                     )}
                   </motion.div>
 
-                  {/* Permissions */}
+                  {/* Permissions — visible only to SUPER_ADMIN */}
+                  {role === "SUPER_ADMIN" && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="surface-elevated p-5">
                     <h3 className="text-sm font-semibold mb-4 flex items-center gap-2"><Shield size={14} /> Permissions</h3>
                     <div className="space-y-4">
@@ -474,6 +501,7 @@ export default function Profile() {
                       ))}
                     </div>
                   </motion.div>
+                  )}
                 </div>
 
                 {/* ─── Right Column: Stats + Navigation Access ─── */}
@@ -569,6 +597,8 @@ export default function Profile() {
                       {role === "LEAD" && "Leads a team within projects. Can create and assign tasks to team members, and manage team attendance."}
                       {role === "DEVELOPER" && "Works on assigned tasks within projects. Can view project boards, report bugs, and mark attendance."}
                       {role === "TESTER" && "Tests deliverables and reports bugs. Can view project boards, create bug reports, and mark attendance."}
+                      {role === "EDITOR" && "Handles editorial tasks and content review. Can work on assigned tasks, view project boards, and mark attendance."}
+                      {role === "DIGITAL_MARKETER" && "Drives campaigns and outreach. Can work on assigned marketing tasks, view project boards, and mark attendance."}
                     </p>
                   </motion.div>
                 </div>

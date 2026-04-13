@@ -9,33 +9,33 @@ import { toast } from "sonner";
 type Tab = "board" | "team" | "bugs";
 
 const COLUMNS: { status: TaskStatus; label: string; cls: string }[] = [
-  { status: "todo",        label: "To Do",       cls: "border-t-gray-300 dark:border-t-gray-600" },
-  { status: "in_progress", label: "In Progress",  cls: "border-t-blue-400" },
-  { status: "in_review",   label: "In Review",    cls: "border-t-purple-400" },
-  { status: "done",        label: "Done",         cls: "border-t-emerald-400" },
+  { status: "TODO",        label: "To Do",       cls: "border-t-gray-300 dark:border-t-gray-600" },
+  { status: "IN_PROGRESS", label: "In Progress",  cls: "border-t-blue-400" },
+  { status: "IN_REVIEW",   label: "In Review",    cls: "border-t-purple-400" },
+  { status: "DONE",        label: "Done",         cls: "border-t-emerald-400" },
 ];
 
 const priorityCls: Record<TaskPriority, string> = {
-  low:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
-  medium:   "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
-  high:     "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-600",
-  critical: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  LOW:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  MEDIUM:   "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
+  HIGH:     "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-600",
+  CRITICAL: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
 };
 
 const bugStatusCls: Record<string, string> = {
-  open:        "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-  assigned:    "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
-  in_progress: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-  in_review:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
-  verified:    "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
-  closed:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  OPEN:        "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  ASSIGNED:    "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
+  IN_PROGRESS: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  IN_REVIEW:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+  VERIFIED:    "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
+  CLOSED:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
 };
 
 const severityCls: Record<string, string> = {
-  low:      "bg-gray-100 text-gray-500",
-  medium:   "bg-amber-50 text-amber-600",
-  high:     "bg-orange-50 text-orange-600",
-  critical: "bg-red-50 text-red-600",
+  LOW:      "bg-gray-100 text-gray-500",
+  MEDIUM:   "bg-amber-50 text-amber-600",
+  HIGH:     "bg-orange-50 text-orange-600",
+  CRITICAL: "bg-red-50 text-red-600",
 };
 
 export function LeadProjectsView() {
@@ -47,7 +47,7 @@ export function LeadProjectsView() {
   const [assignMemberTarget, setAssignMemberTarget] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState<{
     title: string; description: string; type: TaskType; priority: TaskPriority; assigneeId: string;
-  }>({ title: "", description: "", type: "task", priority: "medium", assigneeId: "" });
+  }>({ title: "", description: "", type: "TASK", priority: "MEDIUM", assigneeId: "" });
 
   // Assignable users from API (hierarchical)
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
@@ -84,9 +84,9 @@ export function LeadProjectsView() {
   const projectBugs  = bugs.filter(b => b.projectId === myProject.id);
   const members      = allUsers.filter(u => myProject.members.some(m => m.user.id === u.id));
   const availableMembers = allUsers.filter(u =>
-    (u.role === "DEVELOPER" || u.role === "TESTER") && !myProject.members.some(m => m.user.id === u.id)
+    (u.role === "DEVELOPER" || u.role === "TESTER" || u.role === "EDITOR" || u.role === "DIGITAL_MARKETER") && !myProject.members.some(m => m.user.id === u.id)
   );
-  const openBugs = projectBugs.filter(b => b.status === "open").length;
+  const openBugs = projectBugs.filter(b => b.status === "OPEN").length;
 
   const handleCreateTask = async () => {
     try {
@@ -100,7 +100,7 @@ export function LeadProjectsView() {
       });
       toast.success("Task created");
       setShowCreate(false);
-      setTaskForm({ title: "", description: "", type: "task", priority: "medium", assigneeId: "" });
+      setTaskForm({ title: "", description: "", type: "TASK", priority: "MEDIUM", assigneeId: "" });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Failed to create task";
       toast.error(msg);
@@ -137,7 +137,7 @@ export function LeadProjectsView() {
   };
 
   const tabs: { key: Tab; label: string; badge?: number }[] = [
-    { key: "board", label: "Task Board",  badge: projectTasks.filter(t => t.status !== "done").length },
+    { key: "board", label: "Task Board",  badge: projectTasks.filter(t => t.status !== "DONE").length },
     { key: "team",  label: "Team",        badge: members.length },
     { key: "bugs",  label: "Bug Reports", badge: openBugs > 0 ? openBugs : undefined },
   ];
@@ -161,7 +161,7 @@ export function LeadProjectsView() {
           <div className="grid grid-cols-3 gap-3 flex-shrink-0">
             {[
               { label: "Total Tasks",   value: projectTasks.length,                            color: "text-primary" },
-              { label: "In Progress",   value: projectTasks.filter(t=>t.status==="in_progress").length, color: "text-blue-500" },
+              { label: "In Progress",   value: projectTasks.filter(t=>t.status==="IN_PROGRESS").length, color: "text-blue-500" },
               { label: "Open Bugs",     value: openBugs,                                        color: "text-red-500" },
             ].map(s => (
               <div key={s.label} className="bg-muted rounded-xl p-3 text-center min-w-[72px]">
@@ -217,7 +217,7 @@ export function LeadProjectsView() {
                         className="bg-background border border-border rounded-xl p-3 space-y-2 group">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-xs font-medium leading-snug flex-1">{task.title}</p>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize flex-shrink-0 ${priorityCls[task.priority]}`}>{task.priority}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize flex-shrink-0 ${priorityCls[task.priority]}`}>{task.priority.toLowerCase()}</span>
                         </div>
                         {task.description && <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{task.description}</p>}
                         <div className="flex items-center justify-between">
@@ -234,17 +234,13 @@ export function LeadProjectsView() {
                             <button onClick={() => openHistory(task)} title="Assignment history" className="p-0.5 rounded hover:bg-muted transition-colors opacity-0 group-hover:opacity-100">
                               <History size={10} className="text-muted-foreground" />
                             </button>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{task.type}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{task.type.toLowerCase()}</span>
                           </div>
                         </div>
-                        {/* Assigned by info */}
-                        {task.createdBy && (
-                          <p className="text-[10px] text-muted-foreground/60">Assigned by {task.createdBy.name}</p>
-                        )}
                         {/* Status advance */}
-                        {col.status !== "done" && (
+                        {col.status !== "DONE" && (
                           <button onClick={() => {
-                            const next: Record<TaskStatus, TaskStatus> = { todo: "in_progress", in_progress: "in_review", in_review: "done", done: "done" };
+                            const next: Record<TaskStatus, TaskStatus> = { TODO: "IN_PROGRESS", IN_PROGRESS: "IN_REVIEW", IN_REVIEW: "DONE", DONE: "DONE" };
                             updateTaskStatus(task.id, next[task.status]);
                           }} className="w-full text-[10px] text-primary font-medium hover:underline text-left pt-1">
                             &rarr; Move to {COLUMNS[COLUMNS.findIndex(c => c.status === col.status) + 1]?.label}
@@ -274,7 +270,7 @@ export function LeadProjectsView() {
             </tr></thead>
             <tbody>
               {members.map((m, i) => {
-                const taskCount = projectTasks.filter(t => t.assigneeId === m.id && t.status !== "done").length;
+                const taskCount = projectTasks.filter(t => t.assigneeId === m.id && t.status !== "DONE").length;
                 return (
                   <motion.tr key={m.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
                     className="border-b border-border/50 hover:bg-muted/30 transition-colors">
@@ -315,13 +311,13 @@ export function LeadProjectsView() {
             </tr></thead>
             <tbody>
               {projectBugs.map((b, i) => {
-                const reporter = allUsers.find(u => u.id === b.reportedBy);
-                const assignee = allUsers.find(u => u.id === b.assignedTo);
+                const reporter = allUsers.find(u => u.id === b.reportedById);
+                const assignee = allUsers.find(u => u.id === b.assignedToId);
                 return (
                   <motion.tr key={b.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
                     className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3"><p className="font-medium">{b.title}</p><p className="text-[11px] text-muted-foreground line-clamp-1">{b.description}</p></td>
-                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${severityCls[b.severity]}`}>{b.severity}</span></td>
+                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${severityCls[b.severity]}`}>{b.severity.toLowerCase()}</span></td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{reporter?.name ?? "—"}</td>
                     <td className="px-4 py-3">
                       {assignee ? (
@@ -331,7 +327,7 @@ export function LeadProjectsView() {
                         </div>
                       ) : <span className="text-[11px] text-muted-foreground/60 italic">Unassigned</span>}
                     </td>
-                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${bugStatusCls[b.status]}`}>{b.status.replace("_", " ")}</span></td>
+                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${bugStatusCls[b.status]}`}>{b.status.replace("_", " ").toLowerCase()}</span></td>
                   </motion.tr>
                 );
               })}
@@ -367,14 +363,14 @@ export function LeadProjectsView() {
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Type</label>
                   <select className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
                     value={taskForm.type} onChange={e => setTaskForm(f => ({ ...f, type: e.target.value as TaskType }))}>
-                    {["task","feature","bug","improvement"].map(v => <option key={v} value={v}>{v.charAt(0).toUpperCase()+v.slice(1)}</option>)}
+                    {(["TASK","FEATURE","BUG","IMPROVEMENT"] as const).map(v => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Priority</label>
                   <select className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
                     value={taskForm.priority} onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value as TaskPriority }))}>
-                    {["low","medium","high","critical"].map(v => <option key={v} value={v}>{v.charAt(0).toUpperCase()+v.slice(1)}</option>)}
+                    {(["LOW","MEDIUM","HIGH","CRITICAL"] as const).map(v => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
                   </select>
                 </div>
               </div>

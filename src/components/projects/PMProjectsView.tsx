@@ -9,26 +9,26 @@ import { toast } from "sonner";
 type Tab = "projects" | "tasks" | "bugs";
 
 const taskStatusCls: Record<TaskStatus, string> = {
-  todo:        "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  in_progress: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-  in_review:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
-  done:        "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
+  TODO:        "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  IN_PROGRESS: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  IN_REVIEW:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+  DONE:        "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
 };
 
 const bugStatusCls: Record<BugStatus, string> = {
-  open:        "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-  assigned:    "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
-  in_progress: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-  in_review:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
-  verified:    "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
-  closed:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  OPEN:        "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  ASSIGNED:    "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
+  IN_PROGRESS: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  IN_REVIEW:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+  VERIFIED:    "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
+  CLOSED:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
 };
 
 const severityCls: Record<string, string> = {
-  low:      "bg-gray-100 text-gray-500",
-  medium:   "bg-amber-50 text-amber-600",
-  high:     "bg-orange-50 text-orange-600",
-  critical: "bg-red-50 text-red-600",
+  LOW:      "bg-gray-100 text-gray-500",
+  MEDIUM:   "bg-amber-50 text-amber-600",
+  HIGH:     "bg-orange-50 text-orange-600",
+  CRITICAL: "bg-red-50 text-red-600",
 };
 
 export function PMProjectsView() {
@@ -57,7 +57,7 @@ export function PMProjectsView() {
   const projectIds = myProjects.map(p => p.id);
   const myTasks    = tasks.filter(t => projectIds.includes(t.projectId));
   const myBugs     = bugs.filter(b => projectIds.includes(b.projectId));
-  const openBugs   = myBugs.filter(b => b.status === "open").length;
+  const openBugs   = myBugs.filter(b => b.status === "OPEN").length;
 
   const leadUsers = allUsers.filter(u => u.role === "LEAD");
 
@@ -139,7 +139,7 @@ export function PMProjectsView() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label:"My Projects",  value:myProjects.length, color:"text-primary" },
-          { label:"Open Tasks",   value:myTasks.filter(t=>t.status!=="done").length, color:"text-amber-500" },
+          { label:"Open Tasks",   value:myTasks.filter(t=>t.status!=="DONE").length, color:"text-amber-500" },
           { label:"Open Bugs",    value:openBugs, color:"text-red-500" },
         ].map(s=>(
           <motion.div key={s.label} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="surface-elevated p-4">
@@ -170,7 +170,7 @@ export function PMProjectsView() {
           {myProjects.map((p,i)=>{
             const lead    = allUsers.find(u=>u.id===p.leadId);
             const pTasks  = tasks.filter(t=>t.projectId===p.id);
-            const pBugs   = bugs.filter(b=>b.projectId===p.id&&b.status==="open");
+            const pBugs   = bugs.filter(b=>b.projectId===p.id&&b.status==="OPEN");
             return (
               <motion.div key={p.id} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*0.06}} className="surface-elevated p-5">
                 <div className="flex items-start justify-between gap-4">
@@ -222,8 +222,8 @@ export function PMProjectsView() {
                   <motion.tr key={t.id} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.03}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3"><p className="font-medium">{t.title}</p>{t.description && <p className="text-[11px] text-muted-foreground line-clamp-1">{t.description}</p>}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{proj?.name}</td>
-                    <td className="px-4 py-3"><span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium capitalize">{t.type}</span></td>
-                    <td className="px-4 py-3"><span className="text-[11px] px-2 py-0.5 rounded-full font-medium capitalize bg-muted text-muted-foreground">{t.priority}</span></td>
+                    <td className="px-4 py-3"><span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium capitalize">{t.type.toLowerCase()}</span></td>
+                    <td className="px-4 py-3"><span className="text-[11px] px-2 py-0.5 rounded-full font-medium capitalize bg-muted text-muted-foreground">{t.priority.toLowerCase()}</span></td>
                     <td className="px-4 py-3">
                       {assignee ? (
                         <button onClick={()=>setReassignTask(t)} className="flex items-center gap-1.5 group" title="Click to reassign">
@@ -235,7 +235,7 @@ export function PMProjectsView() {
                         <button onClick={()=>{ fetchAssignable(t.projectId); setAssignDevTarget({type:"task",id:t.id,projectId:t.projectId}); }} className="text-xs text-primary font-medium hover:underline flex items-center gap-1"><UserPlus size={11}/>Assign</button>
                       )}
                     </td>
-                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${taskStatusCls[t.status]}`}>{t.status.replace("_"," ")}</span></td>
+                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${taskStatusCls[t.status]}`}>{t.status.replace("_"," ").toLowerCase()}</span></td>
                     <td className="px-4 py-3">
                       <button onClick={()=>openHistory(t)} title="Assignment history" className="p-1 rounded hover:bg-muted transition-colors">
                         <History size={12} className="text-muted-foreground" />
@@ -261,14 +261,14 @@ export function PMProjectsView() {
             </tr></thead>
             <tbody>
               {myBugs.map((b,i)=>{
-                const reporter  = allUsers.find(u=>u.id===b.reportedBy);
-                const assignee  = allUsers.find(u=>u.id===b.assignedTo);
+                const reporter  = allUsers.find(u=>u.id===b.reportedById);
+                const assignee  = allUsers.find(u=>u.id===b.assignedToId);
                 const proj      = projects.find(p=>p.id===b.projectId);
                 return (
                   <motion.tr key={b.id} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.03}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3"><p className="font-medium">{b.title}</p><p className="text-[11px] text-muted-foreground line-clamp-1">{b.description}</p></td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{proj?.name}</td>
-                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${severityCls[b.severity]}`}>{b.severity}</span></td>
+                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${severityCls[b.severity]}`}>{b.severity.toLowerCase()}</span></td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{reporter?.name}</td>
                     <td className="px-4 py-3">
                       {assignee ? (
@@ -277,7 +277,7 @@ export function PMProjectsView() {
                         <button onClick={()=>{ fetchAssignable(b.projectId); setAssignDevTarget({type:"bug",id:b.id,projectId:b.projectId}); }} className="text-xs text-primary font-medium hover:underline flex items-center gap-1"><UserPlus size={11}/>Assign</button>
                       )}
                     </td>
-                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${bugStatusCls[b.status]}`}>{b.status.replace("_"," ")}</span></td>
+                    <td className="px-4 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${bugStatusCls[b.status]}`}>{b.status.replace("_"," ").toLowerCase()}</span></td>
                     <td/>
                   </motion.tr>
                 );

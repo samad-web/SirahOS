@@ -43,3 +43,7 @@ Thumbs.db
 
 # Prisma
 server/prisma/*.db
+
+# Playwright
+test-results/
+playwright-report/

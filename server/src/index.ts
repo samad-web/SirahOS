@@ -1,7 +1,12 @@
+// Sentry must initialize BEFORE importing modules it auto-instruments (express, http).
+import { initSentry, reportError, Sentry } from "./lib/sentry";
+initSentry();
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { Prisma } from "@prisma/client";
@@ -12,6 +17,7 @@ import projectRoutes from "./routes/projects";
 import taskRoutes from "./routes/tasks";
 import bugRoutes from "./routes/bugs";
 import invoiceRoutes from "./routes/invoices";
+import recurringInvoiceRoutes from "./routes/recurringInvoices";
 import customerRoutes from "./routes/customers";
 import ledgerRoutes from "./routes/ledger";
 import reportsRoutes from "./routes/reports";
@@ -19,10 +25,13 @@ import attendanceRoutes from "./routes/attendance";
 import leavesRoutes from "./routes/leaves";
 import expenseRoutes from "./routes/expenses";
 import noteRoutes from "./routes/notes";
+import todoRoutes from "./routes/todos";
 import leadRoutes from "./routes/leads";
 import adminRoutes from "./routes/admin";
 import fineRoutes from "./routes/fines";
 import companyRoutes from "./routes/companies";
+import searchRoutes from "./routes/search";
+import contentRoutes from "./routes/content";
 import { initScheduler, stopScheduler } from "./lib/scheduler";
 import { verifyDatabaseConnection, disconnectPrisma } from "./lib/prisma";
 import { requestTimeout } from "./middleware/timeout";
@@ -32,11 +41,13 @@ import { logger } from "./lib/logger";
 
 process.on("uncaughtException", (err) => {
   logger.server.error("Uncaught exception", err);
+  reportError(err, { source: "uncaughtException" });
   gracefulShutdown("uncaughtException");
 });
 
 process.on("unhandledRejection", (reason) => {
   logger.server.error("Unhandled rejection", reason);
+  reportError(reason, { source: "unhandledRejection" });
 });
 
 // ─── Express app setup ──────────────────────────────────────────────────────
@@ -120,9 +131,10 @@ const authLimiter = rateLimit({
 
 app.use(limiter);
 
-// ─── Body Parsing ───────────────────────────────────────────────────────────
+// ─── Body + Cookie Parsing ──────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // ─── Request Timeout ────────────────────────────────────────────────────────
 app.use(requestTimeout());
@@ -154,6 +166,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/bugs", bugRoutes);
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api/recurring-invoices", recurringInvoiceRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/ledger", ledgerRoutes);
 app.use("/api/reports", reportsRoutes);
@@ -161,10 +174,13 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leaves", leavesRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/notes", noteRoutes);
+app.use("/api/todos", todoRoutes);
 app.use("/api/leads", leadRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/fines", fineRoutes);
 app.use("/api/companies", companyRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/content", contentRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -206,6 +222,13 @@ app.use(
     // Everything else → 500 with error tracking ID
     const errorId = crypto.randomUUID();
     logger.server.error(`Error ${errorId}: ${err.stack ?? err.message}`);
+    // Forward to Sentry with the errorId so support tickets map to events.
+    Sentry.withScope((scope) => {
+      scope.setTag("errorId", errorId);
+      scope.setExtra("url", _req.originalUrl);
+      scope.setExtra("method", _req.method);
+      reportError(err);
+    });
 
     res.status(500).json({
       error: process.env.NODE_ENV === "production"

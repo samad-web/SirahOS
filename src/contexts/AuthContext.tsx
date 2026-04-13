@@ -1,35 +1,26 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { authApi, usersApi, tokenStorage, AppUser, UserRole } from "@/lib/api";
+import { ROUTE_ACCESS as SHARED_ROUTE_ACCESS } from "@/lib/permissions";
+import { setSentryUser } from "@/lib/sentry";
 
 // ─── Role UI helpers ──────────────────────────────────────────────────────────
 
 export type Role = UserRole; // re-export for backward compat
 
 export const ROLE_LABELS: Record<UserRole, { label: string; cls: string }> = {
-  SUPER_ADMIN:     { label: "Super Admin",     cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-  ADMIN:           { label: "Admin",           cls: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
-  PROJECT_MANAGER: { label: "Project Manager", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
-  LEAD:            { label: "Lead",            cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" },
-  DEVELOPER:       { label: "Developer",       cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
-  TESTER:          { label: "Tester",          cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  SUPER_ADMIN:      { label: "Super Admin",      cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  ADMIN:            { label: "Admin",            cls: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
+  PROJECT_MANAGER:  { label: "Project Manager",  cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  LEAD:             { label: "Lead",             cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" },
+  DEVELOPER:        { label: "Developer",        cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  TESTER:           { label: "Tester",           cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  EDITOR:           { label: "Editor",           cls: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400" },
+  DIGITAL_MARKETER: { label: "Digital Marketer", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
 };
 
-// Route access: which roles are allowed per path
-export const ROUTE_ACCESS: Record<string, UserRole[]> = {
-  "/":           ["SUPER_ADMIN", "ADMIN"],
-  "/employees":  ["SUPER_ADMIN", "ADMIN"],
-  "/projects":   ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
-  "/attendance": ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
-  "/invoices":   ["SUPER_ADMIN", "ADMIN"],
-  "/customers":  ["SUPER_ADMIN", "ADMIN"],
-  "/expenses":   ["SUPER_ADMIN", "ADMIN"],
-  "/ledger":     ["SUPER_ADMIN", "ADMIN"],
-  "/notes":      ["SUPER_ADMIN", "ADMIN"],
-  "/leads":      ["SUPER_ADMIN", "ADMIN"],
-  "/settings":   ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER"],
-  "/profile":    ["SUPER_ADMIN", "ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"],
-  "/companies":  ["SUPER_ADMIN"],
-};
+// Re-exported from @/lib/permissions for backward compat. New code should
+// import directly from "@/lib/permissions".
+export const ROUTE_ACCESS = SHARED_ROUTE_ACCESS;
 
 // ─── Context types ────────────────────────────────────────────────────────────
 
@@ -72,9 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     restore();
   }, []);
 
-  // Load assignable users when authenticated
+  // Load assignable users when authenticated + sync user to Sentry
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setSentryUser(null);
+      return;
+    }
+    setSentryUser({ id: user.id, email: user.email, role: user.role });
     usersApi.assignable()
       .then(({ data }) => setAllUsers(data))
       .catch(() => {});
@@ -83,7 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     try {
       const { data } = await authApi.login(email, password);
-      tokenStorage.set(data.accessToken, data.refreshToken);
+      // Refresh token now lives in an HttpOnly cookie — we only need the access token.
+      tokenStorage.set(data.accessToken);
       // Login response now includes company, but also fetch /me for full data
       setUser(data.user);
       // Fetch full profile (includes company features) in background
@@ -98,9 +94,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    const refreshToken = tokenStorage.getRefresh();
     try {
-      if (refreshToken) await authApi.logout(refreshToken);
+      // Server reads refresh token from the HttpOnly cookie — no body needed.
+      await authApi.logout();
     } catch {
       // best-effort
     } finally {

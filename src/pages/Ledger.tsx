@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
-import { TrendingUp, TrendingDown, IndianRupee, BookOpen, Plus, X, Loader2 } from "lucide-react";
+import { TrendingUp, TrendingDown, IndianRupee, BookOpen, Plus, X, Loader2, Download } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { ledgerApi, LedgerEntry } from "@/lib/api";
+import { toCSV, downloadCSV, datedFilename, type CSVColumn } from "@/lib/csv";
 import { toast } from "sonner";
 
 const fmt = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -16,20 +18,14 @@ export default function Ledger() {
   const [tab, setTab]       = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
-  const [entries, setEntries] = useState<LedgerEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [newEntry, setNewEntry] = useState({ date:"", description:"", account:"", debit:"", credit:"" });
 
-  // ─── Fetch ledger entries on mount ───────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    ledgerApi.list()
-      .then(res => { if (!cancelled) setEntries(res.data); })
-      .catch(() => { /* handled by UI state */ })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+  // ─── Fetch ledger entries via React Query ───────────────────────────────────
+  const qc = useQueryClient();
+  const { data: entries = [], isLoading: loading } = useQuery({
+    queryKey: ["ledger"],
+    queryFn: () => ledgerApi.list().then(r => r.data),
+  });
 
   // ─── Compute P&L from entries ────────────────────────────────────────────────
   const plData = useMemo(() => {
@@ -85,16 +81,47 @@ export default function Ledger() {
       }));
   }, [entries]);
 
-  const totalIncome  = plData.filter(d=>d.type==="income").reduce((s,d)=>s+d.amount,0);
-  const totalExpense = plData.filter(d=>d.type==="expense").reduce((s,d)=>s+d.amount,0);
-  const netProfit    = totalIncome - totalExpense;
+  const { totalIncome, totalExpense, netProfit } = useMemo(() => {
+    const totalIncome = plData.filter(d=>d.type==="income").reduce((s,d)=>s+d.amount,0);
+    const totalExpense = plData.filter(d=>d.type==="expense").reduce((s,d)=>s+d.amount,0);
+    return { totalIncome, totalExpense, netProfit: totalIncome - totalExpense };
+  }, [plData]);
 
-  const filteredJournal = entries.filter(e => {
+  const filteredJournal = useMemo(() => entries.filter(e => {
     const q = search.toLowerCase();
     return !q || e.description.toLowerCase().includes(q) || e.account.toLowerCase().includes(q) || e.ref.toLowerCase().includes(q);
+  }), [entries, search]);
+
+  const handleExport = () => {
+    const columns: CSVColumn<LedgerEntry>[] = [
+      { header: "Date",        value: e => new Date(e.date).toISOString().slice(0, 10) },
+      { header: "Ref",         value: e => e.ref },
+      { header: "Description", value: e => e.description },
+      { header: "Account",     value: e => e.account },
+      { header: "Category",    value: e => e.category ?? "" },
+      { header: "Debit",       value: e => e.debit },
+      { header: "Credit",      value: e => e.credit },
+      { header: "Status",      value: e => e.status },
+    ];
+    downloadCSV(toCSV(filteredJournal, columns), datedFilename("ledger"));
+    toast.success(`Exported ${filteredJournal.length} entries`);
+  };
+
+  const addMut = useMutation({
+    mutationFn: (payload: { date: string; ref: string; description: string; account: string; debit: number; credit: number; status: "PAID" }) => ledgerApi.create(payload),
+    onSuccess: (res) => {
+      qc.setQueryData<LedgerEntry[]>(["ledger"], old => [...(old ?? []), res.data]);
+      toast.success("Journal entry added");
+    },
+    onError: () => {
+      toast.error("Failed to create entry");
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["ledger"] });
+    },
   });
 
-  const handleAddEntry = async () => {
+  const handleAddEntry = () => {
     const payload = {
       date: newEntry.date,
       ref: "MAN-" + Date.now().toString().slice(-4),
@@ -104,13 +131,7 @@ export default function Ledger() {
       credit: Number(newEntry.credit) || 0,
       status: "PAID" as const,
     };
-    try {
-      const res = await ledgerApi.create(payload);
-      setEntries(prev => [...prev, res.data]);
-      toast.success("Journal entry added");
-    } catch {
-      toast.error("Failed to create entry");
-    }
+    addMut.mutate(payload);
     setShowAdd(false);
     setNewEntry({ date:"", description:"", account:"", debit:"", credit:"" });
   };
@@ -150,9 +171,19 @@ export default function Ledger() {
               <p className="text-sm text-muted-foreground mt-1">Accounting records, P&L, and expense tracking.</p>
             </div>
             {tab==="journal"&&(
-              <button onClick={()=>setShowAdd(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
-                <Plus size={15}/> Add Entry
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExport}
+                  disabled={filteredJournal.length === 0}
+                  className="flex items-center gap-2 bg-muted hover:bg-muted/70 text-foreground text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-40"
+                  aria-label="Export ledger journal as CSV"
+                >
+                  <Download size={15} aria-hidden /> Export CSV
+                </button>
+                <button onClick={()=>setShowAdd(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
+                  <Plus size={15} aria-hidden /> Add Entry
+                </button>
+              </div>
             )}
           </div>
 
@@ -225,7 +256,7 @@ export default function Ledger() {
                     </thead>
                     <tbody>
                       {filteredJournal.map((e,i)=>(
-                        <motion.tr key={e.id} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.03}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                        <motion.tr key={e.id} initial={{opacity:0}} animate={{opacity:1}} transition={{duration:0.15}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                           <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{e.date}</td>
                           <td className="px-4 py-3 font-mono text-xs font-semibold text-primary">{e.ref}</td>
                           <td className="px-4 py-3 text-sm">{e.description}</td>
@@ -262,7 +293,7 @@ export default function Ledger() {
                 </div>
                 {plData.filter(d=>d.type==="income").length > 0 ? (
                   plData.filter(d=>d.type==="income").map((row,i)=>(
-                    <motion.div key={row.category} initial={{opacity:0,x:-8}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}} className="flex items-center justify-between px-5 py-3 border-b border-border/50 hover:bg-muted/30 transition-colors">
+                    <motion.div key={row.category} initial={{opacity:0,x:-8}} animate={{opacity:1,x:0}} transition={{duration:0.15}} className="flex items-center justify-between px-5 py-3 border-b border-border/50 hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-emerald-500"/>
                         <span className="text-sm">{row.category}</span>
@@ -283,7 +314,7 @@ export default function Ledger() {
                 </div>
                 {plData.filter(d=>d.type==="expense").length > 0 ? (
                   plData.filter(d=>d.type==="expense").map((row,i)=>(
-                    <motion.div key={row.category} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}} className="flex items-center justify-between px-5 py-3 border-b border-border/50 hover:bg-muted/30 transition-colors">
+                    <motion.div key={row.category} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{duration:0.15}} className="flex items-center justify-between px-5 py-3 border-b border-border/50 hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-red-500"/>
                         <span className="text-sm">{row.category}</span>
@@ -325,7 +356,7 @@ export default function Ledger() {
                     </thead>
                     <tbody>
                       {expenseEntries.map((e,i)=>(
-                        <motion.tr key={e.id} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.04}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                        <motion.tr key={e.id} initial={{opacity:0}} animate={{opacity:1}} transition={{duration:0.15}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                           <td className="px-4 py-3 text-xs text-muted-foreground">{e.date}</td>
                           <td className="px-4 py-3 font-medium">{e.description}</td>
                           <td className="px-4 py-3">

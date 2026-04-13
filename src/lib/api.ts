@@ -8,20 +8,56 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
+//
+// Access token lives in sessionStorage (short-lived, cleared on tab close).
+// Refresh token is managed server-side via an HttpOnly cookie — never touched
+// from JS to defeat XSS.
+//
+// The storage key is **versioned**. When a user upgrades from an older build
+// of the app (e.g. pre-HttpOnly-cookie migration) their stale access token in
+// the legacy key would otherwise cause the restore flow to hit /auth/me with
+// a token that the server can no longer refresh (there's no cookie, because
+// they never logged in on the cookie-aware build). Bumping the key scrubs
+// those orphaned sessions automatically on first page load, forcing a clean
+// re-login instead of a cryptic 401-loop.
+//
+// Bump this version any time the auth model changes in a way that makes
+// older stored sessions unrecoverable.
 
-const STORAGE_KEY_ACCESS = "bf_access";
-const STORAGE_KEY_REFRESH = "bf_refresh";
+const STORAGE_KEY_ACCESS = "bf_access_v2";
+const LEGACY_KEYS = [
+  "bf_access",  // pre-v2: access token before storage key was versioned
+  "bf_refresh", // pre-HttpOnly-cookie: refresh token in localStorage
+] as const;
+
+// One-time cleanup that runs as soon as this module is imported. Removes any
+// orphaned legacy keys so the restore flow never tries to use them.
+(function scrubLegacyStorage() {
+  try {
+    for (const key of LEGACY_KEYS) {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage access can throw in privacy mode or certain iframes. Ignore —
+    // worst case we degrade to "user has to log in again", which is fine.
+  }
+})();
 
 export const tokenStorage = {
-  getAccess: () => sessionStorage.getItem(STORAGE_KEY_ACCESS),
-  getRefresh: () => localStorage.getItem(STORAGE_KEY_REFRESH),
-  set: (access: string, refresh: string) => {
-    sessionStorage.setItem(STORAGE_KEY_ACCESS, access);
-    localStorage.setItem(STORAGE_KEY_REFRESH, refresh);
+  getAccess: () => {
+    try { return sessionStorage.getItem(STORAGE_KEY_ACCESS); }
+    catch { return null; }
+  },
+  /** @deprecated Refresh tokens are kept in an HttpOnly cookie. Returns null. */
+  getRefresh: (): string | null => null,
+  set: (access: string, _refresh?: string) => {
+    try { sessionStorage.setItem(STORAGE_KEY_ACCESS, access); }
+    catch { /* ignore — see scrubLegacyStorage */ }
   },
   clear: () => {
-    sessionStorage.removeItem(STORAGE_KEY_ACCESS);
-    localStorage.removeItem(STORAGE_KEY_REFRESH);
+    try { sessionStorage.removeItem(STORAGE_KEY_ACCESS); }
+    catch { /* ignore */ }
   },
 };
 
@@ -42,7 +78,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 export const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
-  withCredentials: false,
+  // Needed so the HttpOnly refresh-token cookie is sent on /auth/refresh and /auth/logout.
+  withCredentials: true,
 });
 
 // Attach access token to every request
@@ -70,9 +107,23 @@ function processQueue(error: unknown, token: string | null) {
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean; _skipRefresh?: boolean };
 
+    // Not a 401 (or already retried) — bubble up untouched.
     if (error.response?.status !== 401 || original._retry) {
+      return Promise.reject(error);
+    }
+
+    // Short-circuit on requests explicitly flagged to skip refresh, and on
+    // /auth/refresh itself. Both cases mean "there's no valid session to
+    // rescue" — attempting to refresh would loop or fail pointlessly.
+    const url = original.url ?? "";
+    if (original._skipRefresh || url.includes("/auth/refresh") || url.includes("/auth/login")) {
+      // Still clear local state so UI doesn't render as "logged in".
+      if (tokenStorage.getAccess()) {
+        tokenStorage.clear();
+        emitSessionExpired();
+      }
       return Promise.reject(error);
     }
 
@@ -88,20 +139,15 @@ api.interceptors.response.use(
     original._retry = true;
     isRefreshing = true;
 
-    const refreshToken = tokenStorage.getRefresh();
-    if (!refreshToken) {
-      tokenStorage.clear();
-      emitSessionExpired();
-      return Promise.reject(error);
-    }
-
     try {
-      const { data } = await axios.post<{ accessToken: string; refreshToken: string }>(
+      // Refresh token is sent automatically via HttpOnly cookie (withCredentials).
+      const { data } = await axios.post<{ accessToken: string }>(
         `${API_BASE_URL}/auth/refresh`,
-        { refreshToken }
+        {},
+        { withCredentials: true }
       );
 
-      tokenStorage.set(data.accessToken, data.refreshToken);
+      tokenStorage.set(data.accessToken);
       processQueue(null, data.accessToken);
 
       original.headers.Authorization = `Bearer ${data.accessToken}`;
@@ -122,8 +168,8 @@ api.interceptors.response.use(
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<LoginResponse>("/auth/login", { email, password }),
-  logout: (refreshToken: string) =>
-    api.post("/auth/logout", { refreshToken }),
+  // Server reads refresh token from the HttpOnly cookie.
+  logout: () => api.post("/auth/logout", {}),
   me: () => api.get<AppUser>("/auth/me"),
 };
 
@@ -141,6 +187,9 @@ export const usersApi = {
   profile: () => api.get<UserProfile>("/users/profile"),
   updateProfile: (data: { name?: string; currentPassword?: string; newPassword?: string }) =>
     api.patch<AppUser>("/users/profile", data),
+  /** Upload a base64 data-URL avatar, or null to remove. */
+  updateAvatar: (avatar: string | null) =>
+    api.patch<{ avatarUrl: string | null }>("/users/profile/avatar", { avatar }),
 };
 
 export const projectsApi = {
@@ -154,13 +203,38 @@ export const projectsApi = {
   updateStatus: (id: string, status: string) => api.patch<Project>(`/projects/${id}/status`, { status }),
 };
 
+export interface TaskFilters {
+  projectId?:  string;
+  assigneeId?: string;  // pass "unassigned" for tasks with no assignee
+  status?:     Task["status"];
+  priority?:   Task["priority"];
+  search?:     string;
+  page?:       number;
+  limit?:      number;
+}
+
+export interface QuickTaskPayload {
+  title: string;
+  description?: string;
+  type?: Task["type"];
+  priority?: Task["priority"];
+  assigneeId: string;
+  dueDate?: string;
+}
+
 export const tasksApi = {
   list: (projectId?: string) => unwrapPaginated<Task>(api.get("/tasks", { params: projectId ? { projectId } : {} })),
+  /** Create a standalone task assigned to a user — no project required. */
+  quick: (data: QuickTaskPayload) => api.post<Task>("/tasks/quick", data),
+  // Cross-project filtered list for the admin Tasks hub
+  listAll: (filters: TaskFilters = {}) => unwrapPaginated<Task>(api.get("/tasks", { params: filters })),
   create: (data: CreateTaskPayload) => api.post<Task>("/tasks", data),
   update: (id: string, data: Partial<Task> & { reassignNote?: string }) => api.patch<Task>(`/tasks/${id}`, data),
   delete: (id: string) => api.delete(`/tasks/${id}`),
   assignableUsers: (projectId: string) => api.get<AssignableUser[]>("/tasks/assignable-users", { params: { projectId } }),
   reassign: (id: string, data: { assigned_to: string; note?: string }) => api.patch(`/tasks/${id}/assign`, data),
+  bulkAssign: (taskIds: string[], assigneeId: string, note?: string) =>
+    api.post<{ success: boolean; updated: number }>("/tasks/bulk-assign", { taskIds, assigneeId, note }),
   history: (id: string) => api.get<TaskAssignmentLog[]>(`/tasks/${id}/history`),
 };
 
@@ -188,6 +262,83 @@ export const invoicesApi = {
   create: (data: unknown) => api.post<Invoice>("/invoices", data),
   update: (id: string, data: unknown) => api.patch<Invoice>(`/invoices/${id}`, data),
   addPayment: (id: string, data: unknown) => api.post(`/invoices/${id}/payments`, data),
+};
+
+// ─── Recurring invoices ────────────────────────────────────────────────────
+export type RecurringFrequency = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+export type RecurringStatus = "ACTIVE" | "PAUSED" | "ENDED";
+
+export interface RecurringInvoiceItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface RecurringInvoice {
+  id: string;
+  name: string;
+  customerId: string;
+  customer?: Pick<Customer, "id" | "name" | "company" | "email">;
+  frequency: RecurringFrequency;
+  status: RecurringStatus;
+  startDate: string;
+  endDate?: string | null;
+  nextRunAt: string;
+  lastRunAt?: string | null;
+  gstRate: number;
+  paymentType: "FULL" | "EMI";
+  emiMonths?: number | null;
+  dueDays: number;
+  notes?: string | null;
+  generatedCount: number;
+  items: RecurringInvoiceItem[];
+  _count?: { invoices: number };
+  invoices?: { id: string; invoiceNumber: string; status: string; createdAt: string; dueDate?: string | null }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateRecurringInvoicePayload {
+  name: string;
+  customerId: string;
+  frequency: RecurringFrequency;
+  startDate: string;       // ISO datetime
+  endDate?: string | null;
+  gstRate?: number;
+  paymentType?: "FULL" | "EMI";
+  emiMonths?: number;
+  dueDays?: number;
+  notes?: string;
+  items: { description: string; quantity: number; unitPrice: number }[];
+}
+
+// ─── Global search ─────────────────────────────────────────────────────────
+export type SearchResultType = "customer" | "invoice" | "project" | "task" | "recurring-invoice";
+
+export interface SearchResult {
+  type: SearchResultType;
+  id: string;
+  title: string;
+  subtitle?: string;
+  url: string;
+}
+
+export const searchApi = {
+  query: (q: string) => api.get<{ results: SearchResult[] }>("/search", { params: { q } }),
+};
+
+export const recurringInvoicesApi = {
+  list: (status?: RecurringStatus) =>
+    unwrapPaginated<RecurringInvoice>(api.get("/recurring-invoices", { params: status ? { status } : {} })),
+  get: (id: string) => api.get<RecurringInvoice>(`/recurring-invoices/${id}`),
+  create: (data: CreateRecurringInvoicePayload) => api.post<RecurringInvoice>("/recurring-invoices", data),
+  update: (id: string, data: Partial<CreateRecurringInvoicePayload> & { status?: RecurringStatus }) =>
+    api.patch<RecurringInvoice>(`/recurring-invoices/${id}`, data),
+  pause: (id: string) => api.post<RecurringInvoice>(`/recurring-invoices/${id}/pause`),
+  resume: (id: string) => api.post<RecurringInvoice>(`/recurring-invoices/${id}/resume`),
+  runNow: (id: string) => api.post<Invoice>(`/recurring-invoices/${id}/run-now`),
+  delete: (id: string) => api.delete(`/recurring-invoices/${id}`),
 };
 
 export const customersApi = {
@@ -281,7 +432,7 @@ export const leavesApi = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "PROJECT_MANAGER" | "LEAD" | "DEVELOPER" | "TESTER";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "PROJECT_MANAGER" | "LEAD" | "DEVELOPER" | "TESTER" | "EDITOR" | "DIGITAL_MARKETER";
 
 export interface CompanyFeatures {
   id: string;
@@ -300,6 +451,7 @@ export interface AppUser {
   role: UserRole;
   status: "ACTIVE" | "INACTIVE";
   initials?: string;
+  avatarUrl?: string | null;
   companyId?: string | null;
   company?: CompanyFeatures | null;
   reportsToId?: string | null;
@@ -348,6 +500,8 @@ export interface Project {
   members: { user: Pick<AppUser, "id" | "name" | "initials" | "role">; joinedAt: string }[];
   githubUrl?: string;
   developedBy?: string;
+  databaseOwnedBy?: string;
+  databasePassword?: string;
   createdAt: string;
   _count?: { tasks: number; bugs: number };
 }
@@ -364,6 +518,7 @@ export interface CreateProjectPayload {
 export interface Task {
   id: string;
   projectId: string;
+  project?: Pick<Project, "id" | "name" | "client">;
   title: string;
   description?: string;
   type: "TASK" | "FEATURE" | "BUG" | "IMPROVEMENT" | "SUBTASK";
@@ -675,6 +830,102 @@ export interface FineSummary extends FineUserSummary {
     count:   number;
   }[];
 }
+
+// ─── Todo / Goal Types ──────────────────────────────────────────────────────
+
+export type GoalType = "DAILY" | "WEEKLY" | "MONTHLY";
+
+export interface Todo {
+  id:        string;
+  title:     string;
+  completed: boolean;
+  goalType:  GoalType;
+  userId:    string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const todosApi = {
+  list: () => api.get<Todo[]>("/todos"),
+  create: (data: { title: string; goalType?: GoalType }) => api.post<Todo>("/todos", data),
+  update: (id: string, data: Partial<Pick<Todo, "title" | "completed" | "goalType">>) =>
+    api.patch<Todo>(`/todos/${id}`, data),
+  toggle: (id: string) => api.patch<Todo>(`/todos/${id}/toggle`),
+  delete: (id: string) => api.delete(`/todos/${id}`),
+  clearCompleted: () => api.delete("/todos/completed/clear"),
+};
+
+// ─── Content Pipeline Types ──────────────────────────────────────────────
+
+export type ContentStatus = "DRAFT" | "EDITING" | "REVIEW" | "COMPLETED" | "POSTED";
+export type ContentPlatform = "YOUTUBE" | "INSTAGRAM" | "LINKEDIN";
+
+export interface ContentPost {
+  id: string;
+  platform: ContentPlatform;
+  postUrl?: string | null;
+  status: string; // PENDING | SCHEDULED | POSTED
+  scheduledAt?: string | null;
+  postedAt?: string | null;
+  notes?: string | null;
+  contentId: string;
+}
+
+export interface Content {
+  id: string;
+  title: string;
+  script?: string | null;
+  description?: string | null;
+  status: ContentStatus;
+  assignedDate?: string | null;
+  submittedDate?: string | null;
+  dueDate?: string | null;
+  editorId?: string | null;
+  editor?: Pick<AppUser, "id" | "name" | "initials" | "role" | "avatarUrl"> | null;
+  marketerId?: string | null;
+  marketer?: Pick<AppUser, "id" | "name" | "initials" | "role" | "avatarUrl"> | null;
+  posts: ContentPost[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  linkUrl?: string | null;
+  createdAt: string;
+}
+
+export const contentApi = {
+  list: () => api.get<Content[]>("/content"),
+  get: (id: string) => api.get<Content>(`/content/${id}`),
+  create: (data: {
+    title: string;
+    script?: string;
+    description?: string;
+    editorId?: string;
+    assignedDate?: string;
+    dueDate?: string;
+    platforms?: ContentPlatform[];
+  }) => api.post<Content>("/content", data),
+  update: (id: string, data: Partial<{
+    title: string;
+    script: string | null;
+    description: string | null;
+    editorId: string | null;
+    assignedDate: string | null;
+    dueDate: string | null;
+  }>) => api.patch<Content>(`/content/${id}`, data),
+  complete: (id: string) => api.post<Content>(`/content/${id}/complete`),
+  post: (id: string, data: { platform: ContentPlatform; postUrl?: string; notes?: string }) =>
+    api.post<Content>(`/content/${id}/post`, data),
+  delete: (id: string) => api.delete(`/content/${id}`),
+  notifications: () => api.get<{ notifications: AppNotification[]; unreadCount: number }>("/content/notifications/mine"),
+  readAllNotifications: () => api.post("/content/notifications/read-all"),
+};
 
 // ─── Super Admin Types ───────────────────────────────────────────────────────
 

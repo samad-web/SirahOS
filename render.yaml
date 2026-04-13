@@ -43,3 +43,7 @@ services:
         sync: false
       - key: EVOLUTION_INSTANCE
         sync: false
+      - key: SENTRY_DSN
+        sync: false      # Optional — leave blank to disable
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false      # Required for seed — min 12 chars

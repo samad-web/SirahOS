@@ -24,7 +24,8 @@
     --secondary-foreground: 220 25% 10%;
 
     --muted: 220 15% 94%;
-    --muted-foreground: 220 10% 46%;
+    /* Darkened from 46% → 38% so body text on --background meets WCAG AA (4.5:1). */
+    --muted-foreground: 220 10% 38%;
 
     --accent: 250 60% 96%;
     --accent-foreground: 250 75% 58%;
@@ -43,7 +44,8 @@
     --warning: 38 92% 50%;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 220 10% 46%;
+    /* Darkened from 46% → 38% to match --muted-foreground (WCAG AA). */
+    --sidebar-foreground: 220 10% 38%;
     --sidebar-primary: 250 75% 58%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 250 60% 97%;
@@ -72,7 +74,8 @@
     --secondary-foreground: 220 10% 88%;
 
     --muted: 225 18% 12%;
-    --muted-foreground: 220 10% 50%;
+    /* Lightened from 50% → 65% so body text on --background meets WCAG AA on dark. */
+    --muted-foreground: 220 10% 65%;
 
     --accent: 250 40% 15%;
     --accent-foreground: 250 75% 75%;
@@ -89,7 +92,8 @@
     --warning: 38 90% 55%;
 
     --sidebar-background: 225 28% 5%;
-    --sidebar-foreground: 220 10% 50%;
+    /* Lightened from 50% → 65% to match dark --muted-foreground (WCAG AA). */
+    --sidebar-foreground: 220 10% 65%;
     --sidebar-primary: 250 75% 65%;
     --sidebar-primary-foreground: 225 25% 6%;
     --sidebar-accent: 250 30% 12%;
@@ -138,6 +142,53 @@
     content: ' *';
     color: hsl(var(--destructive));
     font-weight: 600;
+  }
+
+  /* Visually-hidden helper — shows again on :focus for skip links. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* "Skip to main content" link — appears at top-left when focused via Tab. */
+  .skip-link {
+    position: fixed;
+    top: -100px;
+    left: 1rem;
+    z-index: 100;
+    padding: 0.5rem 1rem;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: top 0.2s ease;
+  }
+  .skip-link:focus {
+    top: 1rem;
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 2px;
+  }
+
+  /* ─── Reduced-motion support ──────────────────────────────────────────── */
+  /* When the user prefers reduced motion, neutralize all CSS transitions,
+   * animations, and smooth scrolls. framer-motion reads this same media
+   * query via its own reducedMotion config (wired in main.tsx) so
+   * component-level `motion.*` animations also respect it. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

@@ -8,6 +8,7 @@ import { audit } from "../middleware/audit";
 import { canAssign, getAssignableUsers } from "../middleware/validateAssignment";
 import { attachCompany, requireFeature } from "../middleware/companyScope";
 import { PAGINATION } from "../lib/constants";
+import { getGeneralProjectId } from "../lib/general-project";
 
 const router = Router();
 
@@ -50,18 +51,44 @@ router.get("/assignable-users", requireAuth, attachCompany, requireFeature("proj
   res.json(users);
 });
 
-// ─── GET /api/tasks?projectId=xxx ──────────────────────────────────────────
+// ─── GET /api/tasks — supports rich filters for cross-project admin views ─
+// Query params: projectId, assigneeId (can be "unassigned"), status, priority, search
 router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (req: Request, res: Response) => {
-  const { projectId } = req.query as { projectId?: string };
+  const { projectId, assigneeId, status, priority, search } = req.query as {
+    projectId?: string;
+    assigneeId?: string;
+    status?: string;
+    priority?: string;
+    search?: string;
+  };
   const where: Record<string, unknown> = {};
 
-  if (projectId) {
-    where.projectId = projectId;
+  if (projectId) where.projectId = projectId;
+
+  // "unassigned" sentinel → tasks with no assignee
+  if (assigneeId === "unassigned") {
+    where.assigneeId = null;
+  } else if (assigneeId) {
+    where.assigneeId = assigneeId;
   }
 
-  // Developers and Testers only see their own tasks
+  if (status && ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].includes(status)) {
+    where.status = status;
+  }
+  if (priority && ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(priority)) {
+    where.priority = priority;
+  }
+  if (search) {
+    where.OR = [
+      { title:       { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  // Non-management roles only see their own tasks (overrides any assigneeId filter)
   const { role, sub } = req.user!;
-  if (role === "DEVELOPER" || role === "TESTER") {
+  const MEMBER_ROLES: string[] = ["DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
+  if (MEMBER_ROLES.includes(role)) {
     where.assigneeId = sub;
   }
 
@@ -73,7 +100,16 @@ router.get("/", requireAuth, attachCompany, requireFeature("projects"), async (r
   const skip = ((Math.max(Number(page) || 1, 1)) - 1) * take;
 
   const [tasks, total] = await Promise.all([
-    prisma.task.findMany({ where, include: taskInclude, orderBy: { createdAt: "desc" }, take, skip }),
+    prisma.task.findMany({
+      where,
+      include: {
+        ...taskInclude,
+        project: { select: { id: true, name: true, client: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+    }),
     prisma.task.count({ where }),
   ]);
 
@@ -194,8 +230,9 @@ router.patch(
       return;
     }
 
-    // Developers/Testers can only update status on tasks assigned to them
-    if ((role === "DEVELOPER" || role === "TESTER") && task.assigneeId !== sub) {
+    // Non-management roles can only update status on tasks assigned to them
+    const MEMBER_ROLES: string[] = ["DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
+    if (MEMBER_ROLES.includes(role) && task.assigneeId !== sub) {
       res.status(403).json({ error: "You can only update tasks assigned to you" });
       return;
     }
@@ -295,6 +332,57 @@ router.patch(
   }
 );
 
+// ─── POST /api/tasks/bulk-assign — reassign many tasks to one user ────────
+router.post(
+  "/bulk-assign",
+  requireAuth,
+  attachCompany,
+  requireFeature("projects"),
+  adminOrPMOrLead,
+  audit({ action: "BULK_ASSIGN_TASKS", resourceType: "Task" }),
+  async (req: Request, res: Response) => {
+    const body = req.body as { taskIds?: unknown; assigneeId?: unknown; note?: unknown };
+    if (!Array.isArray(body.taskIds) || body.taskIds.length === 0 || typeof body.assigneeId !== "string") {
+      res.status(400).json({ error: "taskIds (non-empty array) and assigneeId (string) are required" });
+      return;
+    }
+    const taskIds = body.taskIds.filter((t): t is string => typeof t === "string");
+    const assigneeId = body.assigneeId;
+    const note = typeof body.note === "string" ? body.note : "Bulk reassignment";
+    const { sub, role } = req.user!;
+    const companyId = getUserCompanyId(req);
+
+    // Load the candidate tasks (scoped to the user's company)
+    const tasks = await prisma.task.findMany({
+      where: { id: { in: taskIds }, ...(companyId ? { companyId } : {}) },
+      select: { id: true, projectId: true },
+    });
+
+    // Validate every (task, newAssignee) pair through the same hierarchical check
+    // used for single reassignment. If any one fails, reject the whole batch.
+    const denied: { taskId: string; reason: string }[] = [];
+    for (const task of tasks) {
+      const perm = await canAssign(sub, role, assigneeId, task.projectId);
+      if (!perm.allowed) denied.push({ taskId: task.id, reason: perm.reason ?? "not permitted" });
+    }
+    if (denied.length > 0) {
+      res.status(403).json({ error: "PERMISSION_DENIED", denied });
+      return;
+    }
+
+    // Execute the reassignment + assignment log entries atomically
+    const validIds = tasks.map(t => t.id);
+    await prisma.$transaction([
+      prisma.task.updateMany({ where: { id: { in: validIds } }, data: { assigneeId } }),
+      prisma.taskAssignmentLog.createMany({
+        data: validIds.map(taskId => ({ taskId, assignedById: sub, assignedToId: assigneeId, note })),
+      }),
+    ]);
+
+    res.json({ success: true, updated: validIds.length });
+  }
+);
+
 // ─── DELETE /api/tasks/:id — Lead or above ─────────────────────────────────
 router.delete(
   "/:id",
@@ -306,6 +394,76 @@ router.delete(
   async (req: Request, res: Response) => {
     await prisma.task.delete({ where: { id: req.params.id as string } });
     res.json({ message: "Task deleted" });
+  }
+);
+
+// ─── POST /api/tasks/quick — standalone task assignment (no project needed) ──
+// Admin, PM, or Lead can assign a task to any active user in their company
+// without first creating a project. The task lands in an auto-created
+// "General Tasks" project.
+const quickTaskSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  type: z.nativeEnum(TaskType).default("TASK"),
+  priority: z.nativeEnum(TaskPriority).default("MEDIUM"),
+  assigneeId: z.string().min(1),
+  dueDate: z.string().datetime().optional(),
+});
+
+router.post(
+  "/quick",
+  requireAuth,
+  attachCompany,
+  adminOrPMOrLead,
+  audit({ action: "CREATE_TASK", resourceType: "Task" }),
+  async (req: Request, res: Response) => {
+    const parsed = quickTaskSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+      return;
+    }
+
+    const companyId = getUserCompanyId(req);
+    if (!companyId) {
+      res.status(403).json({ error: "No company context" });
+      return;
+    }
+
+    // Verify the assignee exists and is active in the same company
+    const assignee = await prisma.user.findUnique({
+      where: { id: parsed.data.assigneeId },
+      select: { id: true, status: true, companyId: true },
+    });
+    if (!assignee || assignee.companyId !== companyId) {
+      res.status(400).json({ error: "Assignee not found in your company" });
+      return;
+    }
+    if (assignee.status !== "ACTIVE") {
+      res.status(400).json({ error: "Cannot assign to an inactive user" });
+      return;
+    }
+
+    const projectId = await getGeneralProjectId(companyId);
+
+    const task = await prisma.task.create({
+      data: {
+        title: parsed.data.title,
+        description: parsed.data.description,
+        type: parsed.data.type,
+        priority: parsed.data.priority,
+        assigneeId: parsed.data.assigneeId,
+        dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
+        projectId,
+        companyId,
+        createdById: req.user!.sub,
+      },
+      include: {
+        ...taskInclude,
+        project: { select: { id: true, name: true } },
+      },
+    });
+
+    res.status(201).json(task);
   }
 );
 

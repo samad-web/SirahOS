@@ -112,10 +112,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const updateProjectStatusMut = useMutation({
     mutationFn: ({ projectId, status }: { projectId: string; status: string }) =>
       projectsApi.updateStatus(projectId, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.projects }),
+    onMutate: async ({ projectId, status }) => {
+      await qc.cancelQueries({ queryKey: QK.projects });
+      const prev = qc.getQueryData<Project[]>(QK.projects);
+      qc.setQueryData<Project[]>(QK.projects, old =>
+        old?.map(p => p.id === projectId ? { ...p, status: status as Project["status"] } : p)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => { if (ctx?.prev) qc.setQueryData(QK.projects, ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.projects }),
   });
 
-  // ── Task mutations ────────────────────────────────────────────────────────────
+  // ── Task mutations (with optimistic updates) ──────────────────────────────────
   const createTaskMut = useMutation({
     mutationFn: (t: CreateTaskPayload) => tasksApi.create(t),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.tasks() }),
@@ -124,16 +133,34 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const assignTaskMut = useMutation({
     mutationFn: ({ taskId, userId }: { taskId: string; userId: string | null }) =>
       tasksApi.update(taskId, { assigneeId: userId ?? undefined }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.tasks() }),
+    onMutate: async ({ taskId, userId }) => {
+      await qc.cancelQueries({ queryKey: QK.tasks() });
+      const prev = qc.getQueryData<Task[]>(QK.tasks());
+      qc.setQueryData<Task[]>(QK.tasks(), old =>
+        old?.map(t => t.id === taskId ? { ...t, assigneeId: userId ?? undefined } : t)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => { if (ctx?.prev) qc.setQueryData(QK.tasks(), ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.tasks() }),
   });
 
   const updateTaskStatusMut = useMutation({
     mutationFn: ({ taskId, status }: { taskId: string; status: TaskStatus }) =>
       tasksApi.update(taskId, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.tasks() }),
+    onMutate: async ({ taskId, status }) => {
+      await qc.cancelQueries({ queryKey: QK.tasks() });
+      const prev = qc.getQueryData<Task[]>(QK.tasks());
+      qc.setQueryData<Task[]>(QK.tasks(), old =>
+        old?.map(t => t.id === taskId ? { ...t, status } : t)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => { if (ctx?.prev) qc.setQueryData(QK.tasks(), ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.tasks() }),
   });
 
-  // ── Bug mutations ─────────────────────────────────────────────────────────────
+  // ── Bug mutations (with optimistic updates) ───────────────────────────────────
   const reportBugMut = useMutation({
     mutationFn: (b: CreateBugPayload) => bugsApi.create(b),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.bugs() }),
@@ -142,13 +169,31 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const assignBugMut = useMutation({
     mutationFn: ({ bugId, userId }: { bugId: string; userId: string }) =>
       bugsApi.assign(bugId, userId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.bugs() }),
+    onMutate: async ({ bugId, userId }) => {
+      await qc.cancelQueries({ queryKey: QK.bugs() });
+      const prev = qc.getQueryData<BugReport[]>(QK.bugs());
+      qc.setQueryData<BugReport[]>(QK.bugs(), old =>
+        old?.map(b => b.id === bugId ? { ...b, assignedToId: userId, status: "ASSIGNED" as const } : b)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => { if (ctx?.prev) qc.setQueryData(QK.bugs(), ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.bugs() }),
   });
 
   const updateBugStatusMut = useMutation({
     mutationFn: ({ bugId, status, resolution }: { bugId: string; status: BugStatus; resolution?: string }) =>
       bugsApi.updateStatus(bugId, status, resolution),
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.bugs() }),
+    onMutate: async ({ bugId, status, resolution }) => {
+      await qc.cancelQueries({ queryKey: QK.bugs() });
+      const prev = qc.getQueryData<BugReport[]>(QK.bugs());
+      qc.setQueryData<BugReport[]>(QK.bugs(), old =>
+        old?.map(b => b.id === bugId ? { ...b, status, ...(resolution ? { resolution } : {}) } : b)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => { if (ctx?.prev) qc.setQueryData(QK.bugs(), ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.bugs() }),
   });
 
   // ── Exposed helpers (match original signature) ────────────────────────────────

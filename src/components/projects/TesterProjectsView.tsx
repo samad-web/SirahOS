@@ -7,26 +7,26 @@ import { useAuth } from "@/contexts/AuthContext";
 type Tab = "tasks" | "bugs";
 
 const bugStatusCls: Record<BugStatus, string> = {
-  open:        "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-  assigned:    "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
-  in_progress: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-  in_review:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
-  verified:    "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
-  closed:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  OPEN:        "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  ASSIGNED:    "bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
+  IN_PROGRESS: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  IN_REVIEW:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+  VERIFIED:    "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
+  CLOSED:      "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
 };
 
 const severityCls: Record<BugSeverity, string> = {
-  low:      "bg-gray-100 text-gray-500",
-  medium:   "bg-amber-50 text-amber-600",
-  high:     "bg-orange-50 text-orange-600",
-  critical: "bg-red-50 text-red-600",
+  LOW:      "bg-gray-100 text-gray-500",
+  MEDIUM:   "bg-amber-50 text-amber-600",
+  HIGH:     "bg-orange-50 text-orange-600",
+  CRITICAL: "bg-red-50 text-red-600",
 };
 
 const taskStatusCls: Record<string, string> = {
-  todo:        "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  in_progress: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-  in_review:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
-  done:        "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
+  TODO:        "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  IN_PROGRESS: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  IN_REVIEW:   "bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+  DONE:        "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
 };
 
 export function TesterProjectsView() {
@@ -37,14 +37,14 @@ export function TesterProjectsView() {
   const [showReport, setShowReport] = useState(false);
   const [bugForm, setBugForm] = useState<{
     title: string; description: string; severity: BugSeverity; taskId: string; projectId: string;
-  }>({ title: "", description: "", severity: "medium", taskId: "", projectId: "" });
+  }>({ title: "", description: "", severity: "MEDIUM", taskId: "", projectId: "" });
 
   // Tasks assigned to this tester
   const myTasks = tasks.filter(t => t.assigneeId === user?.id);
 
   // Bugs reported by this tester
-  const myBugs  = bugs.filter(b => b.reportedBy === user?.id);
-  const openCount = myBugs.filter(b => b.status === "open").length;
+  const myBugs  = bugs.filter(b => b.reportedById === user?.id);
+  const openCount = myBugs.filter(b => b.status === "OPEN").length;
 
   // Projects this tester is a member of
   const myProjects = projects.filter(p => p.members.some(m => m.user.id === user?.id));
@@ -55,16 +55,13 @@ export function TesterProjectsView() {
   const handleReport = () => {
     reportBug({
       projectId:  bugForm.projectId || (myProjects[0]?.id ?? ""),
-      taskId:     bugForm.taskId || null,
+      taskId:     bugForm.taskId || undefined,
       title:      bugForm.title,
       description: bugForm.description,
       severity:   bugForm.severity,
-      status:     "open",
-      reportedBy: user!.id,
-      assignedTo: null,
     });
     setShowReport(false);
-    setBugForm({ title: "", description: "", severity: "medium", taskId: "", projectId: "" });
+    setBugForm({ title: "", description: "", severity: "MEDIUM", taskId: "", projectId: "" });
   };
 
   const tabs = [
@@ -79,7 +76,7 @@ export function TesterProjectsView() {
         {[
           { label: "Assigned Tasks", value: myTasks.length,                                       color: "text-primary" },
           { label: "Bugs Reported",  value: myBugs.length,                                        color: "text-red-500" },
-          { label: "Bugs Verified",  value: myBugs.filter(b => b.status === "verified").length,   color: "text-teal-500" },
+          { label: "Bugs Verified",  value: myBugs.filter(b => b.status === "VERIFIED").length,   color: "text-teal-500" },
         ].map(s => (
           <motion.div key={s.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="surface-elevated p-4">
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide block mb-2">{s.label}</span>
@@ -132,8 +129,8 @@ export function TesterProjectsView() {
                     <p className="text-xs text-muted-foreground leading-relaxed">{task.description}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${taskStatusCls[task.status]}`}>{task.status.replace("_", " ")}</span>
-                    <span className="text-[10px] text-muted-foreground capitalize">{task.type} · {task.priority}</span>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${taskStatusCls[task.status]}`}>{task.status.replace("_", " ").toLowerCase()}</span>
+                    <span className="text-[10px] text-muted-foreground capitalize">{task.type.toLowerCase()} · {task.priority.toLowerCase()}</span>
                   </div>
                 </div>
               </motion.div>
@@ -168,14 +165,14 @@ export function TesterProjectsView() {
                     </p>
                     <p className="text-xs text-muted-foreground leading-relaxed mb-3">{bug.description}</p>
                     <div className="flex items-center gap-2">
-                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${bugStatusCls[bug.status]}`}>{bug.status.replace("_", " ")}</span>
-                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${severityCls[bug.severity]}`}>{bug.severity}</span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${bugStatusCls[bug.status]}`}>{bug.status.replace("_", " ").toLowerCase()}</span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium capitalize ${severityCls[bug.severity]}`}>{bug.severity.toLowerCase()}</span>
                       <span className="text-[10px] text-muted-foreground">Reported {bug.createdAt}</span>
                     </div>
                   </div>
                   {/* Allow tester to mark verified if in_review */}
-                  {bug.status === "in_review" && (
-                    <button onClick={() => updateBugStatus(bug.id, "verified")}
+                  {bug.status === "IN_REVIEW" && (
+                    <button onClick={() => updateBugStatus(bug.id, "VERIFIED")}
                       className="text-xs text-teal-600 font-semibold hover:underline flex-shrink-0">
                       Mark Verified
                     </button>
@@ -220,7 +217,7 @@ export function TesterProjectsView() {
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Severity</label>
                   <select className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
                     value={bugForm.severity} onChange={e => setBugForm(f => ({ ...f, severity: e.target.value as BugSeverity }))}>
-                    {["low","medium","high","critical"].map(v => <option key={v} value={v}>{v.charAt(0).toUpperCase()+v.slice(1)}</option>)}
+                    {(["LOW","MEDIUM","HIGH","CRITICAL"] as const).map(v => <option key={v} value={v}>{v.charAt(0) + v.slice(1).toLowerCase()}</option>)}
                   </select>
                 </div>
                 <div>

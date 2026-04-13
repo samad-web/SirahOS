@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import {
   Plus, FileText, CheckCircle, Clock, AlertTriangle, AlertCircle,
-  X, Trash2, Eye, Loader2,
+  X, Trash2, Eye, Loader2, Download,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { invoicesApi, customersApi, type Invoice, type Customer } from "@/lib/api";
+import { toCSV, downloadCSV, datedFilename, type CSVColumn } from "@/lib/csv";
 import { toast } from "sonner";
 
 interface FormLineItem { id: string; description: string; unitPrice: number; quantity: number; }
@@ -35,49 +37,65 @@ const emptyForm = () => ({
 });
 
 export default function Invoices() {
-  const [invoices, setInvoices]       = useState<Invoice[]>([]);
-  const [customers, setCustomers]     = useState<Customer[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [creating, setCreating]       = useState(false);
+  const qc = useQueryClient();
   const [filter, setFilter]           = useState<"all"|"PAID"|"PENDING"|"OVERDUE"|"PARTIAL">("all");
   const [search, setSearch]           = useState("");
   const [showCreate, setShowCreate]   = useState(false);
   const [view, setView]               = useState<Invoice | null>(null);
   const [form, setForm]               = useState(emptyForm());
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [invRes, custRes] = await Promise.all([
-        invoicesApi.list(),
-        customersApi.list(),
-      ]);
-      setInvoices(invRes.data);
-      setCustomers(custRes.data);
-    } catch {
-      toast.error("Failed to load invoices. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: invoices = [], isLoading: loadingInv } = useQuery({
+    queryKey: ["invoices"],
+    queryFn: () => invoicesApi.list().then(r => r.data),
+  });
+  const { data: customers = [], isLoading: loadingCust } = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => customersApi.list().then(r => r.data),
+  });
+  const loading = loadingInv || loadingCust;
 
-  useEffect(() => { fetchData(); }, []);
+  const createMut = useMutation({
+    mutationFn: (payload: unknown) => invoicesApi.create(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["invoices"] }); },
+  });
 
   const debouncedSearch = useDebounce(search, 300);
-  const overdueCount = invoices.filter(i => i.status === "OVERDUE").length;
 
-  const filtered = invoices.filter(inv => {
+  const filtered = useMemo(() => invoices.filter(inv => {
     const ok = filter === "all" || inv.status === filter;
     const q  = debouncedSearch.toLowerCase();
     const clientName = inv.customer?.name ?? "";
     const companyName = inv.customer?.company ?? "";
     return ok && (!q || clientName.toLowerCase().includes(q) || companyName.toLowerCase().includes(q) || inv.invoiceNumber.toLowerCase().includes(q));
-  });
+  }), [invoices, filter, debouncedSearch]);
 
-  const totalBilled    = invoices.reduce((s,i) => { const sub=getSubtotal(i.items); return s+getTotal(sub,getGSTAmt(sub,i.gstRate)); },0);
-  const totalCollected = invoices.reduce((s,i) => s+getAmountPaid(i), 0);
-  const totalPending   = totalBilled - totalCollected;
-  const totalOverdue   = invoices.filter(i=>i.status==="OVERDUE").reduce((s,i) => { const sub=getSubtotal(i.items); return s+getTotal(sub,getGSTAmt(sub,i.gstRate))-getAmountPaid(i); },0);
+  const { totalBilled, totalCollected, totalPending, totalOverdue, overdueCount } = useMemo(() => {
+    const billed = invoices.reduce((s,i) => { const sub=getSubtotal(i.items); return s+getTotal(sub,getGSTAmt(sub,i.gstRate)); },0);
+    const collected = invoices.reduce((s,i) => s+getAmountPaid(i), 0);
+    const overdue = invoices.filter(i=>i.status==="OVERDUE");
+    const overdueAmt = overdue.reduce((s,i) => { const sub=getSubtotal(i.items); return s+getTotal(sub,getGSTAmt(sub,i.gstRate))-getAmountPaid(i); },0);
+    return { totalBilled: billed, totalCollected: collected, totalPending: billed - collected, totalOverdue: overdueAmt, overdueCount: overdue.length };
+  }, [invoices]);
+
+  const handleExport = () => {
+    const columns: CSVColumn<Invoice>[] = [
+      { header: "Invoice #",      value: i => i.invoiceNumber },
+      { header: "Customer",       value: i => i.customer?.name ?? "" },
+      { header: "Company",        value: i => i.customer?.company ?? "" },
+      { header: "Email",          value: i => i.customer?.email ?? "" },
+      { header: "Status",         value: i => i.status },
+      { header: "Payment Type",   value: i => i.paymentType },
+      { header: "GST Rate (%)",   value: i => i.gstRate },
+      { header: "Subtotal",       value: i => getSubtotal(i.items) },
+      { header: "GST Amount",     value: i => getGSTAmt(getSubtotal(i.items), i.gstRate) },
+      { header: "Total",          value: i => { const s = getSubtotal(i.items); return getTotal(s, getGSTAmt(s, i.gstRate)); } },
+      { header: "Amount Paid",    value: i => getAmountPaid(i) },
+      { header: "Due Date",       value: i => i.dueDate ? new Date(i.dueDate).toISOString().slice(0, 10) : "" },
+      { header: "Created",        value: i => new Date(i.createdAt).toISOString().slice(0, 10) },
+    ];
+    downloadCSV(toCSV(filtered, columns), datedFilename("invoices"));
+    toast.success(`Exported ${filtered.length} invoice${filtered.length === 1 ? "" : "s"}`);
+  };
 
   const addItem = () => setForm(f=>({...f, lineItems:[...f.lineItems,{id:Date.now().toString(),description:"",unitPrice:0,quantity:1}]}));
   const removeItem = (id:string) => setForm(f=>({...f, lineItems:f.lineItems.filter(i=>i.id!==id)}));
@@ -86,8 +104,7 @@ export default function Invoices() {
 
   const handleCreate = async () => {
     try {
-      setCreating(true);
-      await invoicesApi.create({
+      await createMut.mutateAsync({
         customerId: form.customerId,
         gstRate: form.gstRate,
         paymentType: form.paymentType,
@@ -103,11 +120,8 @@ export default function Invoices() {
       setShowCreate(false);
       setForm(emptyForm());
       toast.success("Invoice created successfully");
-      await fetchData();
     } catch {
       toast.error("Failed to create invoice");
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -148,9 +162,19 @@ export default function Invoices() {
               <h2 className="text-2xl font-bold tracking-tight">Invoices</h2>
               <p className="text-sm text-muted-foreground mt-1">Manage billing, GST, and payment tracking.</p>
             </div>
-            <button onClick={()=>setShowCreate(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
-              <Plus size={15} /> New Invoice
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExport}
+                disabled={filtered.length === 0}
+                className="flex items-center gap-2 bg-muted hover:bg-muted/70 text-foreground text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-40"
+                aria-label="Export invoices as CSV"
+              >
+                <Download size={15} aria-hidden /> Export CSV
+              </button>
+              <button onClick={()=>setShowCreate(true)} className="flex items-center gap-2 gradient-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity shadow-sm">
+                <Plus size={15} aria-hidden /> New Invoice
+              </button>
+            </div>
           </div>
 
           {/* Stats */}
@@ -205,7 +229,7 @@ export default function Invoices() {
                         const sub=getSubtotal(inv.items), gst=getGSTAmt(sub,inv.gstRate), total=getTotal(sub,gst), amtPaid=getAmountPaid(inv), bal=total-amtPaid;
                         const st=statusCfg[inv.status] ?? statusCfg.PENDING;
                         return (
-                          <motion.tr key={inv.id} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.04}} onClick={()=>setView(inv)} className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer">
+                          <motion.tr key={inv.id} initial={{opacity:0}} animate={{opacity:1}} transition={{duration:0.15}} onClick={()=>setView(inv)} className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer">
                             <td className="px-4 py-3 font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</td>
                             <td className="px-4 py-3"><p className="font-medium">{inv.customer?.name ?? "—"}</p><p className="text-[11px] text-muted-foreground">{inv.customer?.company ?? ""}</p></td>
                             <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{inv.createdAt ? new Date(inv.createdAt).toLocaleDateString("en-CA") : "—"}</td>
@@ -340,9 +364,9 @@ export default function Invoices() {
             </div>
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={()=>setShowCreate(false)} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
-              <button onClick={handleCreate} disabled={!form.customerId||form.lineItems.some(i=>!i.description||!i.unitPrice)||creating}
+              <button onClick={handleCreate} disabled={!form.customerId||form.lineItems.some(i=>!i.description||!i.unitPrice)||createMut.isPending}
                 className="px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
-                {creating ? "Creating…" : "Create Invoice"}
+                {createMut.isPending ? "Creating…" : "Create Invoice"}
               </button>
             </div>
           </motion.div>

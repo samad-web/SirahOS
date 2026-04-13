@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
@@ -10,9 +11,10 @@ import { usersApi, AppUser, UserRole, CreateUserPayload } from "@/lib/api";
 import { ROLE_LABELS } from "@/contexts/AuthContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { toast } from "sonner";
 
-const ROLES: UserRole[] = ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER"];
+const ROLES: UserRole[] = ["ADMIN", "PROJECT_MANAGER", "LEAD", "DEVELOPER", "TESTER", "EDITOR", "DIGITAL_MARKETER"];
 
 const emptyForm = (): CreateUserPayload & { reportsToId: string } => ({
   name: "", email: "", password: "", role: "DEVELOPER" as UserRole, reportsToId: "",
@@ -22,49 +24,58 @@ type EditForm = { name: string; email: string; role: UserRole; reportsToId: stri
 
 export default function Employees() {
   const { user: currentUser } = useAuth();
-  const [employees, setEmployees] = useState<AppUser[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
   // Add modal
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyForm());
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   // Edit modal
   const [editUser, setEditUser] = useState<AppUser | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({ name: "", email: "", role: "DEVELOPER", reportsToId: "" });
-  const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState("");
 
   // Delete confirmation
   const [deleteUser, setDeleteUser] = useState<AppUser | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
-  const fetchEmployees = useCallback(async () => {
-    try {
-      const { data } = await usersApi.list();
-      setEmployees(data);
-    } catch { /* silently fail */ } finally { setLoading(false); }
-  }, []);
+  // Role-switch confirmation
+  const [roleSwitch, setRoleSwitch] = useState<{ emp: AppUser; newRole: UserRole } | null>(null);
 
-  useEffect(() => { fetchEmployees(); }, [fetchEmployees]);
+  // Focus traps for the four modals. useFocusTrap returns a ref that must
+  // be attached to the modal root div (or a noop ref when inactive).
+  const addModalRef    = useFocusTrap<HTMLDivElement>(showAdd,           () => { setShowAdd(false); setError(""); });
+  const editModalRef   = useFocusTrap<HTMLDivElement>(!!editUser,        () => { setEditUser(null); setEditError(""); });
+  const roleModalRef   = useFocusTrap<HTMLDivElement>(!!roleSwitch,      () => setRoleSwitch(null));
+  const deleteModalRef = useFocusTrap<HTMLDivElement>(!!deleteUser,      () => setDeleteUser(null));
 
-  const debouncedSearch = useDebounce(search, 300);
-  const filtered = employees.filter(e => {
-    const q = debouncedSearch.toLowerCase();
-    return !q || e.name.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.role.toLowerCase().includes(q);
+  const qc = useQueryClient();
+  const { data: employees = [], isLoading: loading } = useQuery({
+    queryKey: ["employees"],
+    queryFn: () => usersApi.list().then(r => r.data),
   });
 
-  const activeCount = employees.filter(e => e.status === "ACTIVE").length;
-  const inactiveCount = employees.filter(e => e.status === "INACTIVE").length;
-  const adminCount = employees.filter(e => e.role === "ADMIN").length;
+  const debouncedSearch = useDebounce(search, 300);
+
+  const filtered = useMemo(() => employees.filter(e => {
+    const q = debouncedSearch.toLowerCase();
+    return !q || e.name.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.role.toLowerCase().includes(q);
+  }), [employees, debouncedSearch]);
+
+  const { activeCount, inactiveCount, adminCount } = useMemo(() => ({
+    activeCount: employees.filter(e => e.status === "ACTIVE").length,
+    inactiveCount: employees.filter(e => e.status === "INACTIVE").length,
+    adminCount: employees.filter(e => e.role === "ADMIN").length,
+  }), [employees]);
 
   // ─── Add ────────────────────────────────────────────────────────────────────
 
+  const addMut = useMutation({
+    mutationFn: (p: CreateUserPayload) => usersApi.create(p),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+  });
+
   const handleAdd = async () => {
-    setSubmitting(true);
     setError("");
     try {
       const payload: CreateUserPayload = {
@@ -74,15 +85,14 @@ export default function Employees() {
         role: form.role,
         ...(form.reportsToId ? { reportsToId: form.reportsToId } : {}),
       };
-      await usersApi.create(payload);
-      await fetchEmployees();
+      await addMut.mutateAsync(payload);
       setShowAdd(false);
       setForm(emptyForm());
       toast.success("Employee added successfully");
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to add employee";
       setError(msg);
-    } finally { setSubmitting(false); }
+    }
   };
 
   // ─── Edit ───────────────────────────────────────────────────────────────────
@@ -98,9 +108,13 @@ export default function Employees() {
     setEditError("");
   };
 
+  const editMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => usersApi.update(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+  });
+
   const handleEdit = async () => {
     if (!editUser) return;
-    setEditSubmitting(true);
     setEditError("");
     try {
       const data: Record<string, unknown> = {};
@@ -114,39 +128,97 @@ export default function Employees() {
         setEditUser(null);
         return;
       }
-      await usersApi.update(editUser.id, data);
-      await fetchEmployees();
+      await editMut.mutateAsync({ id: editUser.id, data });
       setEditUser(null);
       toast.success("Employee updated successfully");
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to update employee";
       setEditError(msg);
-    } finally { setEditSubmitting(false); }
+    }
   };
 
   // ─── Delete ─────────────────────────────────────────────────────────────────
 
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => usersApi.delete(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["employees"] });
+      const prev = qc.getQueryData<AppUser[]>(["employees"]);
+      qc.setQueryData<AppUser[]>(["employees"], old => old?.filter(e => e.id !== id));
+      return { prev };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.prev) qc.setQueryData(["employees"], context.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+  });
+
   const handleDelete = async () => {
     if (!deleteUser) return;
-    setDeleting(true);
     try {
-      await usersApi.delete(deleteUser.id);
-      await fetchEmployees();
+      await deleteMut.mutateAsync(deleteUser.id);
       setDeleteUser(null);
       toast.success("Employee deleted successfully");
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Failed to delete employee";
       toast.error(msg);
-    } finally { setDeleting(false); }
+    }
+  };
+
+  // ─── Inline Role Switch ─────────────────────────────────────────────────────
+
+  const roleMut = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: UserRole }) => usersApi.update(id, { role }),
+    onMutate: async ({ id, role }) => {
+      await qc.cancelQueries({ queryKey: ["employees"] });
+      const prev = qc.getQueryData<AppUser[]>(["employees"]);
+      qc.setQueryData<AppUser[]>(["employees"], old =>
+        old?.map(e => e.id === id ? { ...e, role } : e)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prev) qc.setQueryData(["employees"], context.prev);
+      toast.error("Failed to update role");
+    },
+    onSuccess: () => toast.success("Role updated"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+  });
+
+  const handleRoleSwitch = (emp: AppUser, newRole: UserRole) => {
+    if (newRole === emp.role) return;
+    // Stage the change — actual mutation runs after confirmation.
+    setRoleSwitch({ emp, newRole });
+  };
+
+  const confirmRoleSwitch = () => {
+    if (!roleSwitch) return;
+    roleMut.mutate({ id: roleSwitch.emp.id, role: roleSwitch.newRole });
+    setRoleSwitch(null);
   };
 
   // ─── Toggle Status ──────────────────────────────────────────────────────────
 
+  const toggleMut = useMutation({
+    mutationFn: ({ id, newStatus }: { id: string; newStatus: AppUser["status"] }) => usersApi.updateStatus(id, newStatus),
+    onMutate: async ({ id, newStatus }) => {
+      await qc.cancelQueries({ queryKey: ["employees"] });
+      const prev = qc.getQueryData<AppUser[]>(["employees"]);
+      qc.setQueryData<AppUser[]>(["employees"], old =>
+        old?.map(e => e.id === id ? { ...e, status: newStatus } : e)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prev) qc.setQueryData(["employees"], context.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+  });
+
   const toggleStatus = async (emp: AppUser) => {
     const newStatus = emp.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     try {
-      await usersApi.updateStatus(emp.id, newStatus);
-      await fetchEmployees();
+      await toggleMut.mutateAsync({ id: emp.id, newStatus });
       toast.success(`Employee ${newStatus === "ACTIVE" ? "activated" : "deactivated"}`);
     } catch {
       toast.error("Failed to update status");
@@ -156,7 +228,7 @@ export default function Employees() {
   const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
   // Managers for "reports to" dropdown
-  const managers = employees.filter(e => e.status === "ACTIVE" && ["ADMIN", "PROJECT_MANAGER", "LEAD"].includes(e.role));
+  const managers = useMemo(() => employees.filter(e => e.status === "ACTIVE" && ["ADMIN", "PROJECT_MANAGER", "LEAD"].includes(e.role)), [employees]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -213,11 +285,16 @@ export default function Employees() {
                         ))}
                       </tr>
                     ))
-                  ) : filtered.map((emp, i) => {
+                  ) : filtered.map((emp) => {
                     const { label: roleLbl, cls: roleCls } = ROLE_LABELS[emp.role];
                     const isSelf = emp.id === currentUser?.id;
+                    // Role can only be changed by the person the user reports to,
+                    // or by a Super Admin (who can change anyone).
+                    const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
+                    const isReportsTo = emp.reportsToId === currentUser?.id;
+                    const canChangeRole = !isSelf && (isSuperAdmin || isReportsTo);
                     return (
-                      <motion.tr key={emp.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                      <motion.tr key={emp.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{duration:0.15}} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
@@ -233,7 +310,30 @@ export default function Employees() {
                           <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail size={10} />{emp.email}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${roleCls}`}>{roleLbl}</span>
+                          <div className="relative inline-block">
+                            <span
+                              className={`text-[11px] px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${roleCls} ${
+                                canChangeRole ? "cursor-pointer hover:ring-2 hover:ring-primary/20 transition" : "opacity-60"
+                              }`}
+                              title={isSelf ? "You cannot change your own role" : !canChangeRole ? "Only the person this user reports to can change their role" : "Click to change role"}
+                            >
+                              {roleLbl}
+                              {canChangeRole && <ChevronDown size={10} strokeWidth={2.5} />}
+                            </span>
+                            {canChangeRole && (
+                              <select
+                                aria-label={`Change role for ${emp.name}`}
+                                disabled={roleMut.isPending}
+                                value={emp.role}
+                                onChange={e => handleRoleSwitch(emp, e.target.value as UserRole)}
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                              >
+                                {ROLES.map(r => (
+                                  <option key={r} value={r}>{ROLE_LABELS[r].label}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {emp.reportsTo ? emp.reportsTo.name : "—"}
@@ -294,11 +394,11 @@ export default function Employees() {
 
       {/* ─── Add Employee Modal ─── */}
       {showAdd && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div ref={addModalRef} role="dialog" aria-modal="true" aria-labelledby="add-employee-title" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card border border-border rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between p-6 border-b border-border">
-              <h3 className="font-semibold">Add Employee</h3>
-              <button onClick={() => { setShowAdd(false); setError(""); }} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X size={16} /></button>
+              <h3 id="add-employee-title" className="font-semibold">Add Employee</h3>
+              <button onClick={() => { setShowAdd(false); setError(""); }} aria-label="Close add employee dialog" className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X size={16} aria-hidden /></button>
             </div>
             <div className="p-6 space-y-4">
               {([
@@ -358,9 +458,9 @@ export default function Employees() {
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => { setShowAdd(false); setError(""); }} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
               <button onClick={handleAdd}
-                disabled={submitting || !form.name || !form.email || !form.password || form.password.length < 8}
+                disabled={addMut.isPending || !form.name || !form.email || !form.password || form.password.length < 8}
                 className="px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
-                {submitting ? "Adding…" : "Add Employee"}
+                {addMut.isPending ? "Adding…" : "Add Employee"}
               </button>
             </div>
           </motion.div>
@@ -369,11 +469,11 @@ export default function Employees() {
 
       {/* ─── Edit Employee Modal ─── */}
       {editUser && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div ref={editModalRef} role="dialog" aria-modal="true" aria-labelledby="edit-employee-title" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card border border-border rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between p-6 border-b border-border">
-              <h3 className="font-semibold">Edit Employee</h3>
-              <button onClick={() => { setEditUser(null); setEditError(""); }} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X size={16} /></button>
+              <h3 id="edit-employee-title" className="font-semibold">Edit Employee</h3>
+              <button onClick={() => { setEditUser(null); setEditError(""); }} aria-label="Close edit employee dialog" className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X size={16} aria-hidden /></button>
             </div>
             <div className="p-6 space-y-4">
               <div>
@@ -428,25 +528,69 @@ export default function Employees() {
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => { setEditUser(null); setEditError(""); }} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
               <button onClick={handleEdit}
-                disabled={editSubmitting || !editForm.name || !editForm.email}
+                disabled={editMut.isPending || !editForm.name || !editForm.email}
                 className="px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
-                {editSubmitting ? "Saving…" : "Save Changes"}
+                {editMut.isPending ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </motion.div>
         </div>
       )}
 
+      {/* ─── Role Switch Confirmation Modal ─── */}
+      {roleSwitch && (() => {
+        const fromLabel = ROLE_LABELS[roleSwitch.emp.role].label;
+        const toLabel = ROLE_LABELS[roleSwitch.newRole].label;
+        const isPrivilegedChange =
+          roleSwitch.emp.role === "ADMIN" ||
+          roleSwitch.newRole === "ADMIN" ||
+          roleSwitch.emp.role === "SUPER_ADMIN" ||
+          roleSwitch.newRole === "SUPER_ADMIN";
+        return (
+          <div ref={roleModalRef} role="dialog" aria-modal="true" aria-labelledby="role-switch-title" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="p-6 space-y-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${isPrivilegedChange ? "bg-amber-50 dark:bg-amber-900/20" : "bg-primary/10"}`} aria-hidden>
+                  <Shield size={20} className={isPrivilegedChange ? "text-amber-500" : "text-primary"} />
+                </div>
+                <div className="text-center">
+                  <h3 id="role-switch-title" className="font-semibold text-lg">Change Role</h3>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Change <span className="font-medium text-foreground">{roleSwitch.emp.name}</span>'s role from{" "}
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_LABELS[roleSwitch.emp.role].cls}`}>{fromLabel}</span>{" "}
+                    to{" "}
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_LABELS[roleSwitch.newRole].cls}`}>{toLabel}</span>?
+                  </p>
+                  {isPrivilegedChange && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2">
+                      This affects administrative privileges. Double-check before confirming.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
+                <button onClick={() => setRoleSwitch(null)} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
+                <button onClick={confirmRoleSwitch}
+                  disabled={roleMut.isPending}
+                  className="px-4 py-2 gradient-primary text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {roleMut.isPending ? "Updating…" : "Change Role"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        );
+      })()}
+
       {/* ─── Delete Confirmation Modal ─── */}
       {deleteUser && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div ref={deleteModalRef} role="alertdialog" aria-modal="true" aria-labelledby="delete-employee-title" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl">
             <div className="p-6 space-y-4">
-              <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center mx-auto" aria-hidden>
                 <Trash2 size={20} className="text-red-500" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-lg">Delete Employee</h3>
+                <h3 id="delete-employee-title" className="font-semibold text-lg">Delete Employee</h3>
                 <p className="text-sm text-muted-foreground mt-2">
                   Are you sure you want to delete <span className="font-medium text-foreground">{deleteUser.name}</span>? This action cannot be undone.
                 </p>
@@ -455,9 +599,9 @@ export default function Employees() {
             <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               <button onClick={() => setDeleteUser(null)} className="px-4 py-2 text-sm font-medium rounded-xl hover:bg-muted transition-colors">Cancel</button>
               <button onClick={handleDelete}
-                disabled={deleting}
+                disabled={deleteMut.isPending}
                 className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40">
-                {deleting ? "Deleting…" : "Delete"}
+                {deleteMut.isPending ? "Deleting…" : "Delete"}
               </button>
             </div>
           </motion.div>

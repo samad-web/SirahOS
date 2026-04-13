@@ -374,7 +374,7 @@ export default function SettingsPage() {
                         <label className="text-xs font-medium text-muted-foreground block mb-1.5">Role</label>
                         <select className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
                           value={newUser.role} onChange={e=>setNewUser(u=>({...u,role:e.target.value as Role}))}>
-                          {(["ADMIN","PROJECT_MANAGER","LEAD","DEVELOPER","TESTER"] as Role[]).map(r=>(
+                          {(["ADMIN","PROJECT_MANAGER","LEAD","DEVELOPER","TESTER","EDITOR","DIGITAL_MARKETER"] as Role[]).map(r=>(
                             <option key={r} value={r}>{ROLE_LABELS[r].label}</option>
                           ))}
                         </select>

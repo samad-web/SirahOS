@@ -27,7 +27,17 @@ async function main() {
   console.log("  Seed company created");
 
   // ─── Super Admin ──────────────────────────────────────────────────────────
-  const superAdminPassword = await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD || "superadmin123", 12);
+  // SUPER_ADMIN_PASSWORD must be set via env var — no fallback default. A weak
+  // hard-coded default becomes a permanent bootable backdoor once deployed.
+  const rawSuperAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+  if (!rawSuperAdminPassword || rawSuperAdminPassword.length < 12) {
+    console.error(
+      "\n  ERROR: SUPER_ADMIN_PASSWORD env var is required and must be at least 12 characters.\n" +
+      "   Set it in .env before running `npx prisma db seed`.\n"
+    );
+    process.exit(1);
+  }
+  const superAdminPassword = await bcrypt.hash(rawSuperAdminPassword, 12);
   await prisma.user.upsert({
     where: { email: "superadmin@sirahdigital.com" },
     update: {},
@@ -71,17 +81,29 @@ async function main() {
       update: {},
       create: { name: "Vikram Singh", email: "vikram@sirahos.in", passwordHash, role: Role.TESTER, initials: "VS", companyId: seedCompany.id },
     }),
+    prisma.user.upsert({
+      where: { email: "meera@sirahos.in" },
+      update: {},
+      create: { name: "Meera Iyer", email: "meera@sirahos.in", passwordHash, role: Role.EDITOR, initials: "MI", companyId: seedCompany.id },
+    }),
+    prisma.user.upsert({
+      where: { email: "kabir@sirahos.in" },
+      update: {},
+      create: { name: "Kabir Nair", email: "kabir@sirahos.in", passwordHash, role: Role.DIGITAL_MARKETER, initials: "KN", companyId: seedCompany.id },
+    }),
   ]);
 
   console.log("  Users seeded");
   console.log("\nDatabase seeded successfully!");
   console.log("\nCredentials:");
-  console.log("   Super Admin:     superadmin@sirahdigital.com (password from SUPER_ADMIN_PASSWORD env or 'superadmin123')");
-  console.log("   Admin:           arjun@sirahos.in (demo123)");
-  console.log("   Project Manager: priya@sirahos.in (demo123)");
-  console.log("   Lead:            rahul@sirahos.in (demo123)");
-  console.log("   Developer:       sneha@sirahos.in (demo123)");
-  console.log("   Tester:          vikram@sirahos.in (demo123)");
+  console.log("   Super Admin:       superadmin@sirahdigital.com (password from SUPER_ADMIN_PASSWORD env)");
+  console.log("   Admin:             arjun@sirahos.in (demo123)");
+  console.log("   Project Manager:   priya@sirahos.in (demo123)");
+  console.log("   Lead:              rahul@sirahos.in (demo123)");
+  console.log("   Developer:         sneha@sirahos.in (demo123)");
+  console.log("   Tester:            vikram@sirahos.in (demo123)");
+  console.log("   Editor:            meera@sirahos.in (demo123)");
+  console.log("   Digital Marketer:  kabir@sirahos.in (demo123)");
 }
 
 main()
