@@ -84,6 +84,8 @@ router.get("/", requireAuth, attachCompany, requireFeature("attendance"), async 
 });
 
 // POST /api/attendance — mark or update own attendance
+// If marking PRESENT and the current time is past the company's lateClockInTime,
+// and latePenaltyAmount > 0, an automatic late-penalty fine is created.
 router.post("/", requireAuth, attachCompany, requireFeature("attendance"), async (req: Request, res: Response) => {
   const parsed = markSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -93,16 +95,76 @@ router.post("/", requireAuth, attachCompany, requireFeature("attendance"), async
 
   const { date, status, note } = parsed.data;
   const dateObj = new Date(date);
+  const now = new Date();
 
-  const companyId = getUserCompanyId(req);
+  const companyId = getUserCompanyId(req) as string | undefined;
+
+  // Check if this is a new record (not an update) to avoid double-fining
+  const existing = await prisma.attendance.findUnique({
+    where: { userId_date: { userId: req.user!.sub, date: dateObj } },
+  });
+
   const record = await prisma.attendance.upsert({
     where: { userId_date: { userId: req.user!.sub, date: dateObj } },
     create: { userId: req.user!.sub, date: dateObj, status, note, companyId: companyId ?? undefined },
-    update: { status, note, markedAt: new Date() },
+    update: { status, note, markedAt: now },
     include: { user: { select: { id: true, name: true, initials: true } } },
   });
 
-  res.status(201).json(record);
+  // ── Auto-penalty for late clock-in ──────────────────────────────────────
+  // Only trigger on first PRESENT/WFH marking (not updates), and only if
+  // the company has a penalty configured.
+  let latePenalty: { amount: number; fineId: string } | null = null;
+  if (
+    !existing &&
+    (status === "PRESENT" || status === "WFH") &&
+    companyId
+  ) {
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { latePenaltyAmount: true, lateClockInTime: true },
+    });
+
+    if (company && company.latePenaltyAmount > 0) {
+      const [thresholdH, thresholdM] = company.lateClockInTime.split(":").map(Number);
+      // Compare current time (IST approximation — use server timezone)
+      const clockInHour = now.getHours();
+      const clockInMin = now.getMinutes();
+      const isLate =
+        clockInHour > thresholdH ||
+        (clockInHour === thresholdH && clockInMin > thresholdM);
+
+      if (isLate) {
+        // Check if there's already a late fine for this user+date to avoid duplicates
+        const existingFine = await prisma.fine.findFirst({
+          where: {
+            userId: req.user!.sub,
+            type: "LATE_CLOCK_IN",
+            createdAt: {
+              gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+              lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
+            },
+          },
+        });
+
+        if (!existingFine) {
+          const fine = await prisma.fine.create({
+            data: {
+              userId: req.user!.sub,
+              amount: company.latePenaltyAmount,
+              reason: `Late clock-in at ${String(clockInHour).padStart(2, "0")}:${String(clockInMin).padStart(2, "0")} (threshold: ${company.lateClockInTime})`,
+              type: "LATE_CLOCK_IN",
+              issuedById: req.user!.sub, // auto-issued (system)
+              companyId,
+            },
+          });
+          latePenalty = { amount: fine.amount, fineId: fine.id };
+        }
+      }
+    }
+  }
+
+  res.status(201).json({ ...record, latePenalty });
 });
 
 // GET /api/attendance/summary?userId=&year=&month= — monthly counts for a user

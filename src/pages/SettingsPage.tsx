@@ -3,11 +3,11 @@ import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { Building2, Receipt, BellRing, Palette, Save, Check, Users, Plus, X, DatabaseZap, Trash2, Loader2, AlertTriangle, Banknote, IndianRupee } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth, ROLE_LABELS, Role } from "@/contexts/AuthContext";
 import { adminApi, finesApi } from "@/lib/api";
-import type { Fine, FineSummary } from "@/lib/api";
+import type { Fine, FineSummary, PenaltySettings } from "@/lib/api";
 
 type Tab = "company" | "tax" | "notifications" | "appearance" | "users" | "fines" | "data";
 
@@ -571,6 +571,9 @@ function FinesTab() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+      {/* Late Penalty Settings */}
+      <PenaltySettingsCard />
+
       {/* Summary cards */}
       {summary && (
         <div className="grid grid-cols-3 gap-4">
@@ -724,5 +727,106 @@ function FinesTab() {
         </div>
       )}
     </motion.div>
+  );
+}
+
+// ─── Penalty Settings Card ──────────────────────────────────────────────────
+
+function PenaltySettingsCard() {
+  const queryClient = useQueryClient();
+
+  const { data: settings } = useQuery<PenaltySettings>({
+    queryKey: ["penalty-settings"],
+    queryFn: () => finesApi.penaltySettings().then(r => r.data),
+    staleTime: 60_000,
+  });
+
+  const [penaltyAmount, setPenaltyAmount] = useState("");
+  const [clockInTime, setClockInTime] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  // Sync form with fetched settings (once)
+  if (settings && !initialized) {
+    setPenaltyAmount(String(settings.latePenaltyAmount));
+    setClockInTime(settings.lateClockInTime);
+    setInitialized(true);
+  }
+
+  const saveMut = useMutation({
+    mutationFn: () => finesApi.updatePenaltySettings({
+      latePenaltyAmount: parseFloat(penaltyAmount) || 0,
+      lateClockInTime: clockInTime || "09:30",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["penalty-settings"] });
+      toast.success("Penalty settings saved");
+    },
+    onError: () => toast.error("Failed to save penalty settings"),
+  });
+
+  const isEnabled = (parseFloat(penaltyAmount) || 0) > 0;
+
+  return (
+    <div className="surface-elevated p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-8 h-8 rounded-xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center flex-shrink-0">
+          <IndianRupee size={14} className="text-red-500" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold">Late Clock-in Penalty</h3>
+          <p className="text-[11px] text-muted-foreground">
+            Auto-fine users who mark attendance after the threshold time. Set amount to 0 to disable.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="penalty-amount" className="text-xs font-medium text-muted-foreground block mb-1.5">
+            Penalty Amount (₹)
+          </label>
+          <input
+            id="penalty-amount"
+            type="number"
+            step="1"
+            min="0"
+            className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
+            placeholder="0 = disabled"
+            value={penaltyAmount}
+            onChange={e => setPenaltyAmount(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="clockin-time" className="text-xs font-medium text-muted-foreground block mb-1.5">
+            Clock-in Deadline (24h)
+          </label>
+          <input
+            id="clockin-time"
+            type="time"
+            className="w-full bg-muted rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/20"
+            value={clockInTime}
+            onChange={e => setClockInTime(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mt-4">
+        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+          isEnabled
+            ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+            : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+        }`}>
+          {isEnabled ? `₹${parseFloat(penaltyAmount).toLocaleString("en-IN")} per late day` : "Disabled"}
+        </span>
+        <button
+          onClick={() => saveMut.mutate()}
+          disabled={saveMut.isPending}
+          className="flex items-center gap-2 gradient-primary text-white text-xs font-semibold px-3 py-2 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40"
+        >
+          {saveMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+          Save Settings
+        </button>
+      </div>
+    </div>
   );
 }

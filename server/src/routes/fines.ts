@@ -189,4 +189,45 @@ router.delete(
   }
 );
 
+// ─── Penalty Settings (company-level) ────────────────────────────────────────
+
+// GET /api/fines/penalty-settings — get current company penalty config
+router.get("/penalty-settings", requireAuth, attachCompany, adminOnly, async (req: Request, res: Response) => {
+  const companyId = getUserCompanyId(req) as string | undefined;
+  if (!companyId) { res.status(403).json({ error: "No company context" }); return; }
+
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { latePenaltyAmount: true, lateClockInTime: true },
+  });
+  if (!company) { res.status(404).json({ error: "Company not found" }); return; }
+
+  res.json(company);
+});
+
+// PATCH /api/fines/penalty-settings — update company penalty config
+const penaltySettingsSchema = z.object({
+  latePenaltyAmount: z.number().min(0),
+  lateClockInTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:MM format"),
+});
+
+router.patch("/penalty-settings", requireAuth, attachCompany, adminOnly, async (req: Request, res: Response) => {
+  const companyId = getUserCompanyId(req) as string | undefined;
+  if (!companyId) { res.status(403).json({ error: "No company context" }); return; }
+
+  const parsed = penaltySettingsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+    return;
+  }
+
+  const updated = await prisma.company.update({
+    where: { id: companyId },
+    data: parsed.data,
+    select: { latePenaltyAmount: true, lateClockInTime: true },
+  });
+
+  res.json(updated);
+});
+
 export default router;

@@ -165,6 +165,12 @@ model Company {
   featureAttendance Boolean @default(true)
   featureLeads      Boolean @default(true)
 
+  // Late clock-in penalty settings (configurable by admin)
+  // Set latePenaltyAmount > 0 to enable automatic fines.
+  // lateClockInTime is "HH:MM" (24h) — e.g. "09:30" means clocking in after 9:30 AM is late.
+  latePenaltyAmount Float   @default(0)     // 0 = disabled
+  lateClockInTime   String  @default("09:30")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -824,6 +830,7 @@ model Fine {
   id        String   @id @default(cuid())
   amount    Float
   reason    String
+  type      String   @default("MANUAL") // MANUAL | LATE_CLOCK_IN
   paid      Boolean  @default(false)
   companyId String?
   createdAt DateTime @default(now())

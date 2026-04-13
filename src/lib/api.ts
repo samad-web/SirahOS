@@ -380,7 +380,14 @@ export const leadsApi = {
   deleteNote: (id: string, noteId: string) => api.delete(`/leads/${id}/notes/${noteId}`),
 };
 
+export interface PenaltySettings {
+  latePenaltyAmount: number;
+  lateClockInTime: string; // "HH:MM"
+}
+
 export const finesApi = {
+  penaltySettings: () => api.get<PenaltySettings>("/fines/penalty-settings"),
+  updatePenaltySettings: (data: PenaltySettings) => api.patch<PenaltySettings>("/fines/penalty-settings", data),
   list: (userId?: string) => api.get<Fine[]>("/fines", { params: userId ? { userId } : {} }),
   summary: () => api.get<FineSummary>("/fines/summary"),
   mySummary: () => api.get<FineUserSummary>("/fines/my-summary"),
@@ -806,6 +813,7 @@ export interface Fine {
   id:         string;
   amount:     number;
   reason:     string;
+  type:       "MANUAL" | "LATE_CLOCK_IN";
   paid:       boolean;
   createdAt:  string;
   userId:     string;
